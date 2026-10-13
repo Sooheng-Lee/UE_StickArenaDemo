@@ -1,0 +1,14 @@
+# Normalize text files while keeping Unreal assets binary.
+* text=auto
+*.ini text eol=crlf
+*.cs text eol=crlf
+*.cpp text eol=crlf
+*.h text eol=crlf
+*.uproject text eol=lf
+*.uplugin text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Store Unreal packages in Git LFS.
+*.uasset filter=lfs diff=lfs merge=lfs -text
+*.umap filter=lfs diff=lfs merge=lfs -text

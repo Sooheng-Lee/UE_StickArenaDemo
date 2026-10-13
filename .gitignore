@@ -1,0 +1,34 @@
+# Unreal Engine generated files
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+!Build/**/
+!Build/**/*.ico
+!Build/**/*.icns
+!Build/**/*.png
+
+# IDE caches and generated project files
+.vs/
+.idea/
+.vscode/
+*.sln
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.xcodeproj/
+*.xcworkspace/
+
+# Local files
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+Config/DefaultEditorPerProjectUserSettings.ini
