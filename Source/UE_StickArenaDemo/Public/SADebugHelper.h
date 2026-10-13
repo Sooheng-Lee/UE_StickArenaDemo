@@ -7,6 +7,7 @@ namespace SADebugHelper
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(InKey, DisplayTime, DisplayColor, Msg);
+			UE_LOG(LogTemp, Display, TEXT("%s"), *Msg);
 		}
 	}
 }
