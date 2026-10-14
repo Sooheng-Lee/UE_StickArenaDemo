@@ -14,15 +14,19 @@ ASAPlayerCharacter::ASAPlayerCharacter()
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Camera Boom"));
 	CameraBoom->SetupAttachment(GetRootComponent());
 	CameraBoom->TargetArmLength = 600.0f;
-	CameraBoom->SetRelativeRotation(FRotator(60.0f, 0.0f, 0.0f));
+	CameraBoom->SetRelativeRotation(FRotator(-60.0f, 0.0f, 0.0f));
+	CameraBoom->bUsePawnControlRotation = false;
+	CameraBoom->bInheritPitch = false;
+	CameraBoom->bInheritYaw = false;
+	CameraBoom->bInheritRoll = false;
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("Follow Camera"));
 	FollowCamera->SetupAttachment(CameraBoom);
-	CameraBoom->bUsePawnControlRotation = false;
 	FollowCamera->bUsePawnControlRotation = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
 	bUseControllerRotationYaw = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
+	GetCharacterMovement()->bUseControllerDesiredRotation = false;
 }
 
 void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -51,6 +55,12 @@ void ASAPlayerCharacter::BeginPlay()
 void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 {
 	FVector2D InputVector = Value.Get<FVector2D>();
+	FVector MoveDir = FVector(InputVector.X, InputVector.Y, 0).GetSafeNormal();
+	const FRotator MovementRotation(0.0f, GetController()->GetControlRotation().Yaw, 0.0f);
+	const FVector ForwardDirection = MovementRotation.RotateVector(FVector::ForwardVector);
+	AddMovementInput(ForwardDirection, MoveDir.Y);
+	const FVector RightDirection = MovementRotation.RotateVector(FVector::RightVector);
+	AddMovementInput(RightDirection, MoveDir.X);
 	const FString InputVectorStr = FString::Printf(TEXT("Input Vector : %s"), *InputVector.ToString());
 	SADebugHelper::Print(InputVectorStr, FColor::Green);
 }
