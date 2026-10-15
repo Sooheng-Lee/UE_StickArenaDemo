@@ -27,6 +27,7 @@ ASAPlayerCharacter::ASAPlayerCharacter()
 	bUseControllerRotationYaw = false;
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 	GetCharacterMovement()->bUseControllerDesiredRotation = false;
+	GetCharacterMovement()->MaxWalkSpeed = 400.0f;
 }
 
 void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -61,6 +62,4 @@ void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 	AddMovementInput(ForwardDirection, MoveDir.Y);
 	const FVector RightDirection = MovementRotation.RotateVector(FVector::RightVector);
 	AddMovementInput(RightDirection, MoveDir.X);
-	const FString InputVectorStr = FString::Printf(TEXT("Input Vector : %s"), *InputVector.ToString());
-	SADebugHelper::Print(InputVectorStr, FColor::Green);
 }
