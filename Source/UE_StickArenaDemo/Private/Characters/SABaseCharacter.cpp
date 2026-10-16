@@ -2,7 +2,7 @@
 
 
 #include "Characters/SABaseCharacter.h"
-
+#include "AnimInstances/SABaseAnimInstance.h"
 // Sets default values
 ASABaseCharacter::ASABaseCharacter()
 {
@@ -10,4 +10,17 @@ ASABaseCharacter::ASABaseCharacter()
 	PrimaryActorTick.bCanEverTick = false;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
+}
+
+
+void ASABaseCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+	AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
+}
+
+void ASABaseCharacter::Attack()
+{
+	if (!AnimInstance) return;
+	AnimInstance->PlayAttackMontage();
 }

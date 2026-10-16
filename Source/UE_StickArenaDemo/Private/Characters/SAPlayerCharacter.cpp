@@ -53,6 +53,7 @@ void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Triggered, this, &ASAPlayerCharacter::Movement);
 		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Completed, this, &ASAPlayerCharacter::StopMovementInput);
 		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Canceled, this, &ASAPlayerCharacter::StopMovementInput);
+		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Attack, InputConfig, ETriggerEvent::Triggered, this, &ASAPlayerCharacter::Attack);
 	}
 }
 
@@ -122,6 +123,12 @@ void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
 	LastMovementInputDirection = FVector::ZeroVector;
 	bBrakingForTurn = false;
 	TurnBrakeReleaseSpeed = 0.0f;
+}
+
+void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
+{
+	SADebugHelper::Print(TEXT("Attack!"), FColor::Cyan);
+	Super::Attack();
 }
 
 void ASAPlayerCharacter::RotateToMouse(float DeltaTime)

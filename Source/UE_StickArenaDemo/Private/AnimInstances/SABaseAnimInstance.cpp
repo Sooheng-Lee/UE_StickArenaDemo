@@ -11,9 +11,27 @@ void USABaseAnimInstance::NativeInitializeAnimation()
 	if (OwningCharacter) {
 		OwningMovementComponent = OwningCharacter->GetCharacterMovement();
 	}
+	MaxAttackCount = AttackNames.Num();
+	AttackCount = 0;
 }
 
 void USABaseAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
+}
+
+void USABaseAnimInstance::PlayAttackMontage()
+{
+	if (Montage_IsPlaying(PunchMontage))
+	{
+		Montage_Play(PunchMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+		AttackCount = (AttackCount + 1) % MaxAttackCount;
+	}
+	else
+	{
+		AttackCount = 0;
+		Montage_Play(PunchMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+	}
 }

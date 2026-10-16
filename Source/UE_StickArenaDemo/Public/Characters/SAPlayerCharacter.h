@@ -47,6 +47,7 @@ protected:
 public:
 	void Movement(const FInputActionValue& Value);
 	void StopMovementInput(const FInputActionValue& Value);
+	void Attack(const FInputActionValue& Value);
 
 private:
 	UPROPERTY(VisibleInstanceOnly)

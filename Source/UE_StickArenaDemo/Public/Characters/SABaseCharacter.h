@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "SABaseCharacter.generated.h"
 
+class USABaseAnimInstance;
 UCLASS()
 class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 {
@@ -14,4 +15,11 @@ class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 public:
 	// Sets default values for this character's properties
 	ASABaseCharacter();
+
+protected:
+	virtual void BeginPlay() override;
+	void Attack();
+
+private:
+	USABaseAnimInstance* AnimInstance;
 };
