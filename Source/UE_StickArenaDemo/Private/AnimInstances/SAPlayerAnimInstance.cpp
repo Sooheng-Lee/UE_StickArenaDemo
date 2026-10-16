@@ -12,7 +12,22 @@ void USAPlayerAnimInstance::NativeInitializeAnimation()
 	}
 }
 
-void USAPlayerAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
+void USAPlayerAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
-	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
+	Super::NativeUpdateAnimation(DeltaSeconds);
+	// Read the character on the game thread, before parallel animation evaluation.
+	if (!OwningPlayerCharacter)
+	{
+		OwningPlayerCharacter = Cast<ASAPlayerCharacter>(TryGetPawnOwner());
+	}
+	const FVector2D TargetSpeed = OwningPlayerCharacter
+		? OwningPlayerCharacter->GetMoveVector() : FVector2D::ZeroVector;
+	const float Alpha = LocomotionInterpSpeed > 0.0f
+		? 1.0f - FMath::Exp(-LocomotionInterpSpeed * FMath::Max(DeltaSeconds, 0.0f))
+		: 1.0f;
+	WalkSpeed = FMath::Lerp(WalkSpeed, TargetSpeed, Alpha);
+	if (TargetSpeed.IsNearlyZero() && WalkSpeed.SizeSquared() < 1.0f)
+	{
+		WalkSpeed = FVector2D::ZeroVector;
+	}
 }

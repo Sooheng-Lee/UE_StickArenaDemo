@@ -30,6 +30,10 @@ ASAPlayerCharacter::ASAPlayerCharacter()
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	GetCharacterMovement()->bUseControllerDesiredRotation = false;
 	GetCharacterMovement()->MaxWalkSpeed = 400.0f;
+	GetCharacterMovement()->MaxAcceleration = 1000.0f;
+	GetCharacterMovement()->bUseSeparateBrakingFriction = true;
+	GetCharacterMovement()->BrakingFriction = 0.0f;
+	GetCharacterMovement()->BrakingDecelerationWalking = 1400.0f;
 }
 
 void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -47,12 +51,21 @@ void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		
 		InputSubsystem->AddMappingContext(InputConfig->GetInputMappng(), 0);
 		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Triggered, this, &ASAPlayerCharacter::Movement);
+		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Completed, this, &ASAPlayerCharacter::StopMovementInput);
+		SAInputComp->BindWithTag(SAGameplayTags::InputTag_Movement, InputConfig, ETriggerEvent::Canceled, this, &ASAPlayerCharacter::StopMovementInput);
 	}
 }
 
 void ASAPlayerCharacter::Tick(float DeltaTime)
 {
+	Super::Tick(DeltaTime);
 	RotateToMouse(DeltaTime);
+}
+
+FVector2D ASAPlayerCharacter::GetMoveVector() const
+{
+	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
+	return FVector2D(LocalVelocity.Y, LocalVelocity.X);
 }
 
 void ASAPlayerCharacter::BeginPlay()
@@ -66,17 +79,49 @@ void ASAPlayerCharacter::BeginPlay()
 
 void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 {
-	FVector InputVector = Value.Get<FVector>();
-	FRotator ActorRotation = GetActorRotation();
-	ActorRotation.Yaw = FMath::RoundToFloat(ActorRotation.Yaw / 45.f) * 45.f;
-	const FVector ForwardVector = ActorRotation.RotateVector(FVector::ForwardVector);
-	const FVector RightVector = ActorRotation.RotateVector(FVector::RightVector);
-	float ForwardDotProductVal = FVector::DotProduct(InputVector, ForwardVector);
-	float RightDotProductVal = FVector::DotProduct(InputVector, RightVector);
-	const FString DebugMsg = FString::Printf(TEXT("Look Direction : (%f, %f)"), ForwardDotProductVal, RightDotProductVal);
-	SADebugHelper::Print(DebugMsg, FColor::Blue);
-	FVector MoveDir = FVector(InputVector.X, InputVector.Y, 0).GetSafeNormal();
+	const FVector InputVector = Value.Get<FVector>();
+	const FVector MoveDir = FVector(InputVector.X, InputVector.Y, 0).GetSafeNormal();
+	if (MoveDir.IsNearlyZero())
+	{
+		StopMovementInput(Value);
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+	const float Speed = GetVelocity().Size2D();
+	const FVector VelocityDirection = GetVelocity().GetSafeNormal2D();
+	const bool bNewDirection = !MoveDir.Equals(LastMovementInputDirection, 0.01f);
+	const float DirectionDot = FMath::Clamp(FVector::DotProduct(VelocityDirection, MoveDir), -1.0f, 1.0f);
+	const float BrakeThreshold = FMath::Cos(FMath::DegreesToRadians(TurnBrakeAngle));
+	if (MovementComponent->IsMovingOnGround() && bNewDirection && Speed > 80.0f && DirectionDot <= BrakeThreshold)
+	{
+		// Brake along the current velocity first. Only then accelerate into the new input.
+		const float TurnAmount = (1.0f - DirectionDot) * 0.5f;
+		const float ReleaseSpeed = Speed * FMath::Lerp(1.0f, TurnRetainedSpeedRatio, TurnAmount);
+		TurnBrakeReleaseSpeed = bBrakingForTurn ? FMath::Min(TurnBrakeReleaseSpeed, ReleaseSpeed) : ReleaseSpeed;
+		bBrakingForTurn = true;
+	}
+	LastMovementInputDirection = MoveDir;
+	if (bBrakingForTurn)
+	{
+		// Returning to the current travel direction cancels the turn immediately.
+		if (!MovementComponent->IsMovingOnGround() || Speed <= TurnBrakeReleaseSpeed || DirectionDot > 0.95f)
+		{
+			bBrakingForTurn = false;
+		}
+		else
+		{
+			return;
+		}
+	}
 	AddMovementInput(MoveDir, 1.0f);
+}
+
+void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
+{
+	LastMovementInputDirection = FVector::ZeroVector;
+	bBrakingForTurn = false;
+	TurnBrakeReleaseSpeed = 0.0f;
 }
 
 void ASAPlayerCharacter::RotateToMouse(float DeltaTime)
@@ -94,13 +139,8 @@ void ASAPlayerCharacter::RotateToMouse(float DeltaTime)
 	if (Direction.IsNearlyZero()) return;
 
 	FRotator TargetRotation = Direction.Rotation();
-	const FRotator SmoothRotation = FMath::RInterpTo(
-		GetActorRotation(),
-		TargetRotation,
-		DeltaTime,
-		GetCharacterMovement()->RotationRate.Yaw
-	);
+	const float RotationAlpha = 1.0f - FMath::Exp(-MouseFacingInterpSpeed * FMath::Max(DeltaTime, 0.0f));
+	const FRotator SmoothRotation = FQuat::Slerp(
+		GetActorRotation().Quaternion(), TargetRotation.Quaternion(), RotationAlpha).Rotator();
 	SetActorRotation(FRotator(0.0f, SmoothRotation.Yaw, 0.0f));
-	TargetRotation.Yaw = FMath::RoundToFloat(TargetRotation.Yaw /45.0) * 45.0f;
-	LookVector = TargetRotation.Vector().GetSafeNormal();
 }

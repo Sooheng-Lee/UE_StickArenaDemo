@@ -16,6 +16,4 @@ void USABaseAnimInstance::NativeInitializeAnimation()
 void USABaseAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
-	if (!OwningMovementComponent) return;
-	WalkSpeed = OwningMovementComponent->Velocity.Size2D();
 }

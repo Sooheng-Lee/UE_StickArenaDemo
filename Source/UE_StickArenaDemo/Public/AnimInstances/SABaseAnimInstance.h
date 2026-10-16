@@ -22,7 +22,5 @@ protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	UCharacterMovementComponent* OwningMovementComponent;
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
-	float WalkSpeed;
-	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
-	FVector MoveDirection;
+	FVector2D WalkSpeed;
 };
