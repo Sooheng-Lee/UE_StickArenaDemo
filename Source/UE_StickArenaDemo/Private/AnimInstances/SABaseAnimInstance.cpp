@@ -22,7 +22,7 @@ void USABaseAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
 }
 
-void USABaseAnimInstance::PlayAttackMontage()
+void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 {
 	if (bAttacking) return;
 	bAttacking = true;
@@ -31,15 +31,33 @@ void USABaseAnimInstance::PlayAttackMontage()
 
 		const FString DebugMsg = FString::Printf(TEXT("Attack Idx : %d"), AttackCount);
 		SADebugHelper::Print(DebugMsg);
-		Montage_Play(PunchMontage);
-		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+		switch (WeaponType)
+		{
+			case EWeaponType::None:
+				Montage_Play(PunchMontage);
+				Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+				break;
+			case EWeaponType::Weapon:
+				Montage_Play(SwordMontage);
+				Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
+				break;
+		}
 		AttackCount = (AttackCount + 1) % MaxAttackCount;
 	}
 	else
 	{
 		AttackCount = 0;
-		Montage_Play(PunchMontage);
-		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+		switch (WeaponType)
+		{
+		case EWeaponType::None:
+			Montage_Play(PunchMontage);
+			Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+			break;
+		case EWeaponType::Weapon:
+			Montage_Play(SwordMontage);
+			Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
+			break;
+		}
 	}
 }
 

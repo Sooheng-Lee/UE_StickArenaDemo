@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
+#include "../UE_StickArenaDemo.h"
 #include "Animation/AnimInstance.h"
 #include "SABaseAnimInstance.generated.h"
 
@@ -15,11 +15,10 @@ class UE_STICKARENADEMO_API USABaseAnimInstance : public UAnimInstance
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
-	void PlayAttackMontage();
+	void PlayAttackMontage(EWeaponType WeaponType);
 protected:
 	UFUNCTION()
 	void OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
-
 	void SetAttackEnabled();
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
@@ -30,6 +29,8 @@ protected:
 	FVector2D WalkSpeed;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	UAnimMontage* PunchMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
+	UAnimMontage* SwordMontage;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	TArray<FName> AttackNames;
 	UINT AttackCount;

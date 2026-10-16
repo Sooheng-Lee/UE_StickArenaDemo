@@ -22,5 +22,5 @@ void ASABaseCharacter::BeginPlay()
 void ASABaseCharacter::Attack()
 {
 	if (!AnimInstance) return;
-	AnimInstance->PlayAttackMontage();
+	AnimInstance->PlayAttackMontage(EWeaponType::Weapon);
 }
