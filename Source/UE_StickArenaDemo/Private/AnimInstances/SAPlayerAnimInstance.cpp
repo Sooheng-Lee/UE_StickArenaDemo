@@ -2,15 +2,17 @@
 
 
 #include "AnimInstances/SAPlayerAnimInstance.h"
+#include "Characters/SAPlayerCharacter.h"
 #include "SADebugHelper.h"
 void USAPlayerAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	if (OwningCharacter) {
+		OwningPlayerCharacter = Cast<ASAPlayerCharacter>(OwningCharacter);
+	}
 }
 
 void USAPlayerAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 {
 	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
-	const FString& WalkSpeedStr = FString::Printf(TEXT("Walk Speed : %f"), WalkSpeed);
-	SADebugHelper::Print(WalkSpeedStr, FColor::Green);
 }

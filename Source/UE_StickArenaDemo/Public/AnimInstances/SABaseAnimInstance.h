@@ -15,6 +15,7 @@ class UE_STICKARENADEMO_API USABaseAnimInstance : public UAnimInstance
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
+
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	ASABaseCharacter* OwningCharacter;
@@ -22,4 +23,6 @@ protected:
 	UCharacterMovementComponent* OwningMovementComponent;
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	float WalkSpeed;
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
+	FVector MoveDirection;
 };

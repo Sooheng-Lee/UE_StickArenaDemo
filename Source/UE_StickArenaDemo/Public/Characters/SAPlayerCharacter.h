@@ -20,7 +20,7 @@ class UE_STICKARENADEMO_API ASAPlayerCharacter : public ASABaseCharacter
 public:
 	ASAPlayerCharacter();
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
+	virtual void Tick(float DeltaTime) override;
 protected:
 	virtual void BeginPlay() override;
 
@@ -31,7 +31,17 @@ protected:
 	UCameraComponent* FollowCamera;
 	UPROPERTY(EditDefaultsOnly, Category="Input Config", meta=(AllowPrivateAccess="true"))
 	UDataAsset_InputConfigs* InputConfig;
-
+	
 public:
 	void Movement(const FInputActionValue& Value);
+
+private:
+	UPROPERTY(VisibleInstanceOnly)
+	APlayerController* PC;
+	UPROPERTY(VisibleInstanceOnly)
+	FVector LookVector;
+	UPROPERTY(VisibleInstanceOnly)
+	FVector2D LookDirection;
+private:
+	void RotateToMouse(float DeltaTime);
 };

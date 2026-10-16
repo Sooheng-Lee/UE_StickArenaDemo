@@ -6,9 +6,7 @@
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "SAPlayerAnimInstance.generated.h"
 
-/**
- * 
- */
+class ASAPlayerCharacter;
 UCLASS()
 class UE_STICKARENADEMO_API USAPlayerAnimInstance : public USABaseAnimInstance
 {
@@ -16,5 +14,8 @@ class UE_STICKARENADEMO_API USAPlayerAnimInstance : public USABaseAnimInstance
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
-	
+
+private:
+	UPROPERTY()
+	ASAPlayerCharacter* OwningPlayerCharacter;
 };
