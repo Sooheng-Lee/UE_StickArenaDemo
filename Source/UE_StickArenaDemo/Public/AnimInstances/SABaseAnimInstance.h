@@ -17,6 +17,11 @@ public:
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	void PlayAttackMontage();
 protected:
+	UFUNCTION()
+	void OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
+
+	void SetAttackEnabled();
+protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	ASABaseCharacter* OwningCharacter;
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
@@ -29,4 +34,5 @@ protected:
 	TArray<FName> AttackNames;
 	UINT AttackCount;
 	UINT MaxAttackCount;
+	bool bAttacking = false;
 };
