@@ -16,10 +16,15 @@ public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	void PlayAttackMontage(EWeaponType WeaponType);
+
 protected:
 	UFUNCTION()
 	void OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	void SetAttackEnabled();
+
+private:
+	void PlayPunch();
+	void PlaySword();
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	ASABaseCharacter* OwningCharacter;

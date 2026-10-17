@@ -27,6 +27,7 @@ public:
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
+	virtual void OwnItem(AActor* NewOwner);
 
 public:	
 	// Called every frame
@@ -41,7 +42,7 @@ protected:
 	float RotationSpeed = 0.0f;
 	UPROPERTY(VisibleInstanceOnly)
 	EItemState ItemState = EItemState::Unowned;
-
+	
 private:
 	UFUNCTION()
 	void OnDetectionBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);

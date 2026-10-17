@@ -29,6 +29,11 @@ void ASAItemActor::BeginPlay()
 	ItemMeshComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
+void ASAItemActor::OwnItem(AActor* NewOwner)
+{
+	SetItemState(EItemState::Owned);
+}
+
 // Called every frame
 void ASAItemActor::Tick(float DeltaTime)
 {
@@ -51,7 +56,6 @@ void ASAItemActor::Tick(float DeltaTime)
 
 void ASAItemActor::OnDetectionBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	const FString& DebugMsg = FString::Printf(TEXT("Detected Actor : %s"), *OtherActor->GetName());
-	SADebugHelper::Print(DebugMsg);
+	OwnItem(OtherActor);
 }
 

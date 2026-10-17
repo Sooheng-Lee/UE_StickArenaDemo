@@ -26,38 +26,47 @@ void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 {
 	if (bAttacking) return;
 	bAttacking = true;
+	
+	switch (WeaponType)
+	{
+		case EWeaponType::None:
+			PlayPunch();
+			break;
+		case EWeaponType::Weapon:
+			PlaySword();
+			break;
+	}	
+}
+
+void USABaseAnimInstance::PlayPunch()
+{
 	if (Montage_IsPlaying(PunchMontage))
 	{
-
-		const FString DebugMsg = FString::Printf(TEXT("Attack Idx : %d"), AttackCount);
-		SADebugHelper::Print(DebugMsg);
-		switch (WeaponType)
-		{
-			case EWeaponType::None:
-				Montage_Play(PunchMontage);
-				Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
-				break;
-			case EWeaponType::Weapon:
-				Montage_Play(SwordMontage);
-				Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
-				break;
-		}
+		Montage_Play(PunchMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
 		AttackCount = (AttackCount + 1) % MaxAttackCount;
 	}
 	else
 	{
 		AttackCount = 0;
-		switch (WeaponType)
-		{
-		case EWeaponType::None:
-			Montage_Play(PunchMontage);
-			Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
-			break;
-		case EWeaponType::Weapon:
-			Montage_Play(SwordMontage);
-			Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
-			break;
-		}
+		Montage_Play(PunchMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], PunchMontage);
+	}
+}
+
+void USABaseAnimInstance::PlaySword()
+{
+	if (Montage_IsPlaying(SwordMontage))
+	{
+		Montage_Play(SwordMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
+		AttackCount = (AttackCount + 1) % MaxAttackCount;
+	}
+	else
+	{
+		AttackCount = 0;
+		Montage_Play(SwordMontage);
+		Montage_JumpToSection(AttackNames[AttackCount], SwordMontage);
 	}
 }
 
