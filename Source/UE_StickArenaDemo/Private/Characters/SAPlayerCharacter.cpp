@@ -7,12 +7,14 @@
 #include "Camera/CameraComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Components/SAInputComponent.h"
+#include "Components/SAUdpClientComponent.h"
 #include "GamePlay/SAGameplayTags.h"
 #include "SADebugHelper.h"
 ASAPlayerCharacter::ASAPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+	UdpClient = CreateDefaultSubobject<USAUdpClientComponent>(TEXT("UDP Client"));
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Camera Boom"));
 	CameraBoom->SetupAttachment(GetRootComponent());
 	CameraBoom->TargetArmLength = 600.0f;
@@ -88,6 +90,7 @@ void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 		return;
 	}
 
+	UdpClient->SetMovementInput(MoveDir);
 	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
 	const float Speed = GetVelocity().Size2D();
 	const FVector VelocityDirection = GetVelocity().GetSafeNormal2D();
@@ -120,6 +123,7 @@ void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 
 void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
 {
+	UdpClient->SetMovementInput(FVector::ZeroVector);
 	LastMovementInputDirection = FVector::ZeroVector;
 	bBrakingForTurn = false;
 	TurnBrakeReleaseSpeed = 0.0f;
@@ -127,6 +131,7 @@ void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
 
 void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
 {
+	UdpClient->SendAction(TEXT("ATTACK"));
 	SADebugHelper::Print(TEXT("Attack!"), FColor::Cyan);
 	Super::Attack();
 }

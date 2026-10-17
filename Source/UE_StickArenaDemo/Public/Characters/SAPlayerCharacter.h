@@ -13,6 +13,7 @@
 class USpringArmComponent;
 class UCameraComponent;
 class UDataAsset_InputConfigs;
+class USAUdpClientComponent;
 UCLASS()
 class UE_STICKARENADEMO_API ASAPlayerCharacter : public ASABaseCharacter
 {
@@ -26,6 +27,9 @@ protected:
 	virtual void BeginPlay() override;
 
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Networking")
+	USAUdpClientComponent* UdpClient;
+
 	UPROPERTY(EditDefaultsOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
 	USpringArmComponent* CameraBoom;
 	UPROPERTY(EditDefaultsOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
