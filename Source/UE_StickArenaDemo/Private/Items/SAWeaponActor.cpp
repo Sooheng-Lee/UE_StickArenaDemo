@@ -12,5 +12,6 @@ void ASAWeaponActor::OwnItem(AActor* NewOwner)
 		if (!TargetMesh || !TargetMesh->DoesSocketExist(FName("WeaponSocket"))) return;
 		AttachToComponent(TargetMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, FName("WeaponSocket"));
 		Player->SetWeaponType(WeaponType);
+		Player->SetWeapon(this);
 	}
 }

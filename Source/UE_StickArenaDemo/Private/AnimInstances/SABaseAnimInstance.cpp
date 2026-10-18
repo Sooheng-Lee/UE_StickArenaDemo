@@ -7,6 +7,7 @@
 #include "LevelObjects/SATreasureBox.h"
 #include "SADebugHelper.h"
 #include "DrawDebugHelpers.h"
+#include "Items/SACRWeapon.h"
 #include "GameFramework/CharacterMovementComponent.h"
 void USABaseAnimInstance::NativeInitializeAnimation()
 {
@@ -85,10 +86,24 @@ void USABaseAnimInstance::OnNotifyBegin(FName NotifyName, const FBranchingPointN
 	{
 		DetectPunchAttack();
 	}
+	else if (NotifyName == TEXT("ActivateHitComponent"))
+	{
+		if (!IsValid(OwningCharacter) || OwningCharacter->GetCharacterState() != ECharacterState::Attack) return;
+		ASACRWeapon* Weapon = Cast<ASACRWeapon>(OwningCharacter->GetWeapon());
+		if (!Weapon) return;
+		Weapon->ActivateHitCollision();
+	}
 }
 
 void USABaseAnimInstance::SetAttackEnabled()
 {
+	if (IsValid(OwningCharacter))
+	{
+		if (ASACRWeapon* Weapon = Cast<ASACRWeapon>(OwningCharacter->GetWeapon()))
+		{
+			Weapon->DeactivateHitCollision();
+		}
+	}
 	if (IsValid(OwningCharacter) && OwningCharacter->GetCharacterState() == ECharacterState::Attack)
 	{
 		OwningCharacter->SetCharacterState(ECharacterState::Idle);

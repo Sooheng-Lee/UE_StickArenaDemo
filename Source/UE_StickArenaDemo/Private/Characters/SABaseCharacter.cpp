@@ -4,6 +4,7 @@
 #include "Characters/SABaseCharacter.h"
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "TimerManager.h"
+#include "Items/SACRWeapon.h"
 // Sets default values
 ASABaseCharacter::ASABaseCharacter()
 {
@@ -53,6 +54,10 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 		}
 	}
 	SetCharacterState(ECharacterState::Damaged);
+	if (ASACRWeapon* Weapon = Cast<ASACRWeapon>(GetWeapon()))
+	{
+		Weapon->DeactivateHitCollision();
+	}
 	GetWorldTimerManager().SetTimer(DamageRecoveryTimerHandle, this,
 		&ASABaseCharacter::FinishDamageRecovery, 0.85f, false);
 }

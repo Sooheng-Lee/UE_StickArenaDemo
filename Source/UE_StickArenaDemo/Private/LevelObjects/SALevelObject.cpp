@@ -10,6 +10,7 @@ ASALevelObject::ASALevelObject()
 	ObjectMesh->SetupAttachment(GetRootComponent());
 	ObjectMesh->SetMobility(EComponentMobility::Movable);
 	ObjectMesh->SetCollisionProfileName(TEXT("BlockAll"));
+	ObjectMesh->SetGenerateOverlapEvents(true);
 }
 
 void ASALevelObject::PlayHitEffect()

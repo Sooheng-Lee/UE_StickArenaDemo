@@ -7,6 +7,7 @@
 #include "SABaseCharacter.generated.h"
 
 class USABaseAnimInstance;
+class ASAWeaponActor;
 UCLASS()
 class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 {
@@ -23,6 +24,8 @@ public:
 	void SetCharacterState(ECharacterState State) { CharacterState = State; }
 	EWeaponType GetWeaponType() const { return WeaponType; }
 	void SetWeaponType(EWeaponType Type);
+	ASAWeaponActor* GetWeapon() const { return OwnedWeapon.Get(); }
+	void SetWeapon(ASAWeaponActor* Weapon) { OwnedWeapon = Weapon; };
 protected:
 	virtual void BeginPlay() override;
 	void Attack();
@@ -32,6 +35,7 @@ protected:
 	ECharacterState CharacterState = ECharacterState::Idle;
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	EWeaponType WeaponType = EWeaponType::None;
+	TObjectPtr<ASAWeaponActor> OwnedWeapon = nullptr;
 
 private:
 	FTimerHandle DamageRecoveryTimerHandle;
