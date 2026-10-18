@@ -21,10 +21,12 @@ protected:
 	UFUNCTION()
 	void OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
 	void SetAttackEnabled();
+	void DetectPunchAttack();
 
 private:
 	void PlayPunch();
 	void PlaySword();
+
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	ASABaseCharacter* OwningCharacter;

@@ -132,7 +132,6 @@ void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
 void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
 {
 	UdpClient->SendAction(TEXT("ATTACK"));
-	SADebugHelper::Print(TEXT("Attack!"), FColor::Cyan);
 	Super::Attack();
 }
 
