@@ -3,6 +3,7 @@
 
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "Characters/SABaseCharacter.h"
+#include "LevelObjects/SALevelObject.h"
 #include "SADebugHelper.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -93,6 +94,7 @@ void USABaseAnimInstance::SetAttackEnabled()
 
 void USABaseAnimInstance::DetectPunchAttack()
 {
+	if (!IsValid(OwningCharacter) || !GetWorld()) return;
 	const FVector Forward = OwningCharacter->GetActorForwardVector();
 	const FVector Start = OwningCharacter->GetActorLocation() + Forward * 5.0f;
 	const FVector End = Start + Forward * 50.0f;
@@ -117,9 +119,18 @@ void USABaseAnimInstance::DetectPunchAttack()
 		return;
 	}
 	DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, 50.0f, 20.0f, FRotationMatrix::MakeFromZ(Forward).ToQuat(), FColor::Green, false, 2.0f);
-	for (FHitResult HitResult : HitResults)
+	TSet<ASALevelObject*> HitObjects;
+	for (const FHitResult& HitResult : HitResults)
 	{
-		const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *HitResult.GetActor()->GetName());
+		if (ASALevelObject* LevelObject = Cast<ASALevelObject>(HitResult.GetActor()))
+		{
+			if (!HitObjects.Contains(LevelObject))
+			{
+				HitObjects.Add(LevelObject);
+				LevelObject->PlayHitEffect();
+			}
+		}
+		const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *GetNameSafe(HitResult.GetActor()));
 		SADebugHelper::Print(DebugMsg, FColor::Blue);
 	}
 }
