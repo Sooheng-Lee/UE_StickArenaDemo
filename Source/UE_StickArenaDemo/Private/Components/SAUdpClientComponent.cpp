@@ -12,6 +12,10 @@
 #include "Sockets.h"
 #include "SocketSubsystem.h"
 #include <charconv>
+#include "Misc/CoreDelegates.h"
+#include "LevelObjects/SATreasureBox.h"
+#include "Items/SAWeaponActor.h"
+#include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSAUdp, Log, All);
 
@@ -129,17 +133,21 @@ USAUdpClientComponent::USAUdpClientComponent()
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.TickGroup = TG_PostPhysics;
 	EnemyCharacterClass = ASAEnemyCharacter::StaticClass();
+    static ConstructorHelpers::FClassFinder<ASAWeaponActor> Sword(TEXT("/Game/Items/Weapons/Blueprints/BP_WeaponSword"));
+    if (Sword.Succeeded()) SwordItemClass = Sword.Class;
 }
 
 void USAUdpClientComponent::BeginPlay()
 {
 	Super::BeginPlay();
+    PreExitHandle = FCoreDelegates::OnPreExit.AddUObject(this, &USAUdpClientComponent::SendLeave);
 	SessionId = FGuid::NewGuid().ToString(EGuidFormats::Digits);
 	PlayerRegistration.PlayerId = SessionId;
 }
 
 bool USAUdpClientComponent::EnsureSocket()
 {
+    if (bLeaving) return false;
 	const APawn* Pawn = Cast<APawn>(GetOwner());
 	if (!bEnabled || !Pawn || !Pawn->IsLocallyControlled()) return false;
 
@@ -281,6 +289,19 @@ void USAUdpClientComponent::ReceivePackets()
 		if (!bAscii) continue;
 		Buffer[Received] = 0;
 		const FString Packet = UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer));
+        if (Packet.StartsWith(TEXT("SA4|type=TREASURE_STATE|"))) { ReceiveTreasure(Packet); continue; }
+        if (Packet.StartsWith(TEXT("SA4|type=HIT_ACK|")))
+        {
+            TArray<FString> Fields;
+            Packet.ParseIntoArray(Fields, TEXT("|"), false);
+            if (Fields.Num() == 5 && Fields[2] == TEXT("epoch=") + TreasureEpoch)
+            {
+                const FString Id = Fields[3].RightChop(3);
+                if (const auto* PendingHit = PendingTreasureHits.Find(Id))
+                    if (PendingHit->Packet.EndsWith(TEXT("|") + Fields[4])) PendingTreasureHits.Remove(Id);
+            }
+            continue;
+        }
 		if (Packet.StartsWith(TEXT("SA2|type=PLAYER_INFO|"), ESearchCase::CaseSensitive))
 		{
 			FSAPlayerRegistration Info;
@@ -346,6 +367,16 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	if (!bEnabled || !Pawn || !Pawn->IsLocallyControlled()) return;
 	if (!EnsureSocket()) return;
 	ReceivePackets();
+    const double TreasureNow = FPlatformTime::Seconds();
+    for (auto It = PendingTreasureHits.CreateIterator(); It; ++It)
+    {
+        if (TreasureNow > It.Value().Expires) { It.RemoveCurrent(); continue; }
+        if (TreasureNow >= It.Value().NextSend)
+        {
+            SendPacket(It.Value().Packet);
+            It.Value().NextSend = TreasureNow + 0.2;
+        }
+    }
 	RegistrationElapsed += DeltaTime;
 	// Periodic registration also recovers if the server restarts or expires a session.
 	if (RegistrationElapsed >= (bRegistrationAcknowledged ? 3.0f : 1.0f)) SendRegistration();
@@ -368,11 +399,26 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	SendAction(TEXT("STATE"), MovementInput);
 }
 
+void USAUdpClientComponent::SendLeave()
+{
+    if (bLeaving) return;
+    bLeaving = true;
+    // Use the existing socket before closing it; never create a connection during teardown.
+    if (Socket && RemoteAddress.IsValid() && !SessionId.IsEmpty())
+    {
+        const FString LeavePacket = TEXT("SA2|type=LEAVE|session=") + SessionId;
+        for (int32 Attempt = 0; Attempt < 3; ++Attempt) SendPacket(LeavePacket);
+    }
+}
+
 void USAUdpClientComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    SendLeave();
+    FCoreDelegates::OnPreExit.Remove(PreExitHandle);
 	for (const auto& Entry : RemoteCharacters)
 		if (IsValid(Entry.Value)) Entry.Value->Destroy();
-	RemoteCharacters.Reset();
+	ClearTreasure();
+    RemoteCharacters.Reset();
 	RemotePlayerRegistrations.Reset();
 	RemotePlayerStates.Reset();
 	RemoteLastReceived.Reset();
@@ -385,4 +431,86 @@ void USAUdpClientComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	RemoteAddress.Reset();
 	Super::EndPlay(EndPlayReason);
+}
+
+void USAUdpClientComponent::SendTreasureHit(const FString& Id)
+{
+    if (Id.IsEmpty() || TreasureEpoch.IsEmpty() || !bRegistrationAcknowledged || !EnsureSocket()) return;
+    // Only one in-flight hit per box, with the same sequence on every retry.
+    if (PendingTreasureHits.Contains(Id)) return;
+    FPendingTreasureHit Hit;
+    Hit.Packet = FString::Printf(TEXT("SA4|type=BOX_HIT|epoch=%s|session=%s|id=%s|seq=%lld"),
+        *TreasureEpoch, *SessionId, *Id, ++TreasureHitSequence);
+    Hit.Expires = FPlatformTime::Seconds() + 2.0;
+    Hit.NextSend = FPlatformTime::Seconds() + 0.2;
+    SendPacket(Hit.Packet);
+    PendingTreasureHits.Add(Id, Hit);
+}
+
+void USAUdpClientComponent::ClearTreasure()
+{
+    for (const auto& Entry : TreasureActors) if (IsValid(Entry.Value)) Entry.Value->Destroy();
+    TreasureActors.Reset();
+    TreasureHits.Reset();
+    PendingTreasureHits.Reset();
+}
+
+void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
+{
+    TArray<FString> Fields;
+    Packet.ParseIntoArray(Fields, TEXT("|"), false);
+    if (Fields.Num() != 7 || Fields[0] != TEXT("SA4") || Fields[1] != TEXT("type=TREASURE_STATE")) return;
+    const TCHAR* Keys[] = {TEXT("epoch="), TEXT("id="), TEXT("item="), TEXT("hits="), TEXT("pos=")};
+    for (int32 I = 0; I < 5; ++I) if (!Fields[I+2].RemoveFromStart(Keys[I], ESearchCase::CaseSensitive)) return;
+    const auto IsDigits = [](const FString& S) {
+        if (S.IsEmpty() || S.Len() > 20) return false;
+        for (TCHAR C : S) if (C < '0' || C > '9') return false;
+        return true;
+    };
+    if (!IsDigits(Fields[2]) || !IsDigits(Fields[3]) || Fields[4] != TEXT("0")
+        || (Fields[5] != TEXT("0") && Fields[5] != TEXT("1") && Fields[5] != TEXT("2") && Fields[5] != TEXT("3"))) return;
+    FVector Position;
+    if (!ParseVector(Fields[6], Position) || Position.GetAbsMax() > 1.e8 || !GetWorld()) return;
+    if (TreasureEpoch != Fields[2])
+    {
+        if (RetiredTreasureEpochs.Contains(Fields[2])) return;
+        if (!TreasureEpoch.IsEmpty()) RetiredTreasureEpochs.Add(TreasureEpoch);
+        ClearTreasure();
+        TreasureEpoch = Fields[2];
+    }
+    const FString& Id = Fields[3];
+    const int32 Hits = FCString::Atoi(*Fields[5]);
+    const int32* Previous = TreasureHits.Find(Id);
+    if (Previous && *Previous > Hits) return;
+    AActor* Existing = TreasureActors.FindRef(Id);
+    if (Previous && *Previous == Hits) return; // Includes locally collected/destroyed items.
+    if (ASATreasureBox* Box = Cast<ASATreasureBox>(Existing))
+    {
+        Box->ApplyNetworkHits(Hits);
+        if (Hits < 3) { TreasureHits.Add(Id, Hits); return; }
+        Position = Box->GetActorLocation();
+        Box->Destroy();
+        TreasureActors.Remove(Id);
+    }
+    // The console server has no terrain collision. Resolve its candidate XY onto the local map.
+    FHitResult Floor;
+    FCollisionQueryParams Query(SCENE_QUERY_STAT(TreasureGround), false);
+    Query.AddIgnoredActor(GetOwner());
+    for (const auto& Entry : TreasureActors) if (IsValid(Entry.Value)) Query.AddIgnoredActor(Entry.Value);
+    if (!Existing && GetWorld()->LineTraceSingleByChannel(Floor, Position + FVector(0,0,500), Position - FVector(0,0,1500), ECC_Visibility, Query))
+        Position = Floor.ImpactPoint;
+    FActorSpawnParameters Params;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    AActor* Spawned = nullptr;
+    if (Hits < 3)
+    {
+        ASATreasureBox* Box = GetWorld()->SpawnActor<ASATreasureBox>(ASATreasureBox::StaticClass(), Position, FRotator::ZeroRotator, Params);
+        if (Box) { Box->InitializeNetworkBox(Id, ESATreasureItem::Sword); Box->ApplyNetworkHits(Hits); }
+        Spawned = Box;
+    }
+    else if (SwordItemClass)
+    {
+        Spawned = GetWorld()->SpawnActor<AActor>(SwordItemClass, Position, FRotator::ZeroRotator, Params);
+    }
+    if (Spawned) { TreasureActors.Add(Id, Spawned); TreasureHits.Add(Id, Hits); }
 }

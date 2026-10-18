@@ -4,6 +4,7 @@
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "Characters/SABaseCharacter.h"
 #include "LevelObjects/SALevelObject.h"
+#include "LevelObjects/SATreasureBox.h"
 #include "SADebugHelper.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -141,7 +142,8 @@ void USABaseAnimInstance::DetectPunchAttack()
 			if (!HitObjects.Contains(LevelObject))
 			{
 				HitObjects.Add(LevelObject);
-				LevelObject->PlayHitEffect();
+				if (ASATreasureBox* Box = Cast<ASATreasureBox>(LevelObject)) Box->RequestHit(OwningCharacter);
+                else LevelObject->PlayHitEffect();
 			}
 		}
 		const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *GetNameSafe(HitResult.GetActor()));

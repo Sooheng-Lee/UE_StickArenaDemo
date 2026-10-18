@@ -21,7 +21,8 @@ public:
 	UFUNCTION(BlueprintCallable)
 	ECharacterState GetCharacterState() const { return CharacterState; }
 	void SetCharacterState(ECharacterState State) { CharacterState = State; }
-
+	EWeaponType GetWeaponType() const { return WeaponType; }
+	void SetWeaponType(EWeaponType Type);
 protected:
 	virtual void BeginPlay() override;
 	void Attack();
@@ -29,6 +30,8 @@ protected:
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	ECharacterState CharacterState = ECharacterState::Idle;
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
+	EWeaponType WeaponType = EWeaponType::None;
 
 private:
 	FTimerHandle DamageRecoveryTimerHandle;

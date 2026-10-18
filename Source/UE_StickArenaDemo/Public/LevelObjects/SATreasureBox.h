@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "LevelObjects/SALevelObject.h"
+#include "Items/SATreasureItem.h"
 #include "SATreasureBox.generated.h"
 
 UCLASS()
@@ -11,6 +12,16 @@ class UE_STICKARENADEMO_API ASATreasureBox : public ASALevelObject
 
 public:
 	ASATreasureBox();
+    void InitializeNetworkBox(const FString& Id, ESATreasureItem Item);
+    void ApplyNetworkHits(int32 Hits);
+    void RequestHit(AActor* Attacker);
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Treasure")
+    ESATreasureItem SpawnItem = ESATreasureItem::Sword;
+    UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Treasure")
+    int32 HitCount = 0;
+private:
+    FString NetworkId;
+public:
 	virtual void PlayHitEffect() override;
 	virtual void Tick(float DeltaSeconds) override;
 

@@ -1,4 +1,6 @@
 #include "LevelObjects/SATreasureBox.h"
+#include "Components/SAUdpClientComponent.h"
+#include "GameFramework/Pawn.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
@@ -38,4 +40,24 @@ void ASATreasureBox::Tick(float DeltaSeconds)
 	const float Angle = FMath::DegreesToRadians(AngleDegrees)
 		* FMath::Sin(Alpha * 2.0f * PI * Oscillations) * FMath::Square(1.0f - Alpha);
 	ObjectMesh->SetRelativeRotation(RestRotation * FQuat(FVector::ForwardVector, Angle));
+}
+
+void ASATreasureBox::InitializeNetworkBox(const FString& Id, ESATreasureItem Item)
+{
+    NetworkId = Id;
+    SpawnItem = Item;
+}
+
+void ASATreasureBox::ApplyNetworkHits(int32 Hits)
+{
+    if (Hits > HitCount) PlayHitEffect();
+    HitCount = Hits;
+}
+
+void ASATreasureBox::RequestHit(AActor* Attacker)
+{
+    const APawn* Pawn = Cast<APawn>(Attacker);
+    if (!Pawn || !Pawn->IsLocallyControlled()) return;
+    if (USAUdpClientComponent* Client = Attacker->FindComponentByClass<USAUdpClientComponent>())
+        Client->SendTreasureHit(NetworkId);
 }

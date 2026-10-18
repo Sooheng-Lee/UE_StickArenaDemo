@@ -20,6 +20,7 @@ public:
 	USAUdpClientComponent();
 	void SendAction(const TCHAR* Action, const FVector& Input = FVector::ZeroVector);
 	void SetMovementInput(const FVector& Input);
+    void SendTreasureHit(const FString& Id);
 	UFUNCTION(BlueprintPure, Category="UDP")
 	ASAEnemyCharacter* GetRemoteCharacter(const FString& PlayerId) const;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
@@ -45,6 +46,22 @@ protected:
 
 private:
 	bool EnsureSocket();
+    void SendLeave();
+    FDelegateHandle PreExitHandle;
+    bool bLeaving = false;
+    friend class FSATreasureNetworkTest;
+    void ReceiveTreasure(const FString& Packet);
+    void ClearTreasure();
+    UPROPERTY()
+    TMap<FString, TObjectPtr<AActor>> TreasureActors;
+    TMap<FString, int32> TreasureHits;
+    FString TreasureEpoch;
+    TSet<FString> RetiredTreasureEpochs;
+    struct FPendingTreasureHit { FString Packet; double Expires = 0; double NextSend = 0; };
+    TMap<FString, FPendingTreasureHit> PendingTreasureHits;
+    int64 TreasureHitSequence = 0;
+    UPROPERTY(EditDefaultsOnly, Category="Treasure")
+    TSubclassOf<AActor> SwordItemClass;
 	void SendRegistration();
 	void ReceivePackets();
 	bool SendPacket(const FString& Packet);

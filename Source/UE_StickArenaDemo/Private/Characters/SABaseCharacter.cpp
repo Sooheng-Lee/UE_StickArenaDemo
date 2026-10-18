@@ -14,6 +14,11 @@ ASABaseCharacter::ASABaseCharacter()
 }
 
 
+void ASABaseCharacter::SetWeaponType(EWeaponType Type)
+{
+	this->WeaponType = Type;
+}
+
 void ASABaseCharacter::BeginPlay()
 {
 	Super::BeginPlay();
@@ -25,7 +30,7 @@ void ASABaseCharacter::Attack()
 	// Remote characters assign their mesh/AnimInstance after construction.
 	AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
 	if (!AnimInstance) return;
-	AnimInstance->PlayAttackMontage(EWeaponType::None);
+	AnimInstance->PlayAttackMontage(WeaponType);
 }
 
 FVector2D ASABaseCharacter::GetMoveVector() const
