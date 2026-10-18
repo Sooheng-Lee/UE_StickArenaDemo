@@ -15,11 +15,13 @@ class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 public:
 	// Sets default values for this character's properties
 	ASABaseCharacter();
+	virtual FVector2D GetMoveVector() const;
 
 protected:
 	virtual void BeginPlay() override;
 	void Attack();
 
 private:
+	UPROPERTY(Transient)
 	USABaseAnimInstance* AnimInstance;
 };

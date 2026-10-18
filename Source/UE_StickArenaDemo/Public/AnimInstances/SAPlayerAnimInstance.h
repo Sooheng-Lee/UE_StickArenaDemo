@@ -6,7 +6,6 @@
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "SAPlayerAnimInstance.generated.h"
 
-class ASAPlayerCharacter;
 UCLASS()
 class UE_STICKARENADEMO_API USAPlayerAnimInstance : public USABaseAnimInstance
 {
@@ -20,7 +19,4 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Locomotion", meta=(ClampMin="0.0"))
 	float LocomotionInterpSpeed = 12.0f;
 
-private:
-	UPROPERTY()
-	ASAPlayerCharacter* OwningPlayerCharacter;
 };

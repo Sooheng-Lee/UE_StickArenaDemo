@@ -24,6 +24,9 @@ void USABaseAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 
 void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 {
+	const UAnimMontage* Montage = WeaponType == EWeaponType::None ? PunchMontage : SwordMontage;
+	if (!Montage || AttackNames.IsEmpty()) return;
+	MaxAttackCount = AttackNames.Num();
 	if (bAttacking) return;
 	bAttacking = true;
 	

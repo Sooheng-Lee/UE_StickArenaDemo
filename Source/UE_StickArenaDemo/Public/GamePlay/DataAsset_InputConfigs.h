@@ -14,7 +14,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input")
 	FGameplayTag InputTag;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Input")
-	UInputAction* InputAction;
+	UInputAction* InputAction = nullptr;
 };
 
 class UInputMappingContext;

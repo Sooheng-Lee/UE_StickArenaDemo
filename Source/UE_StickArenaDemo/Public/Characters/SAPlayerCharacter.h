@@ -22,7 +22,7 @@ public:
 	ASAPlayerCharacter();
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void Tick(float DeltaTime) override;
-	FVector2D GetMoveVector() const;
+	virtual FVector2D GetMoveVector() const override;
 protected:
 	virtual void BeginPlay() override;
 

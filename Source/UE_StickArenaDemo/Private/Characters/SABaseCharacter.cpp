@@ -21,6 +21,14 @@ void ASABaseCharacter::BeginPlay()
 
 void ASABaseCharacter::Attack()
 {
+	// Remote characters assign their mesh/AnimInstance after construction.
+	AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
 	if (!AnimInstance) return;
 	AnimInstance->PlayAttackMontage(EWeaponType::Weapon);
+}
+
+FVector2D ASABaseCharacter::GetMoveVector() const
+{
+	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
+	return FVector2D(LocalVelocity.Y, LocalVelocity.X);
 }
