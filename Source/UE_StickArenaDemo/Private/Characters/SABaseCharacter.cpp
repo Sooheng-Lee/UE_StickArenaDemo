@@ -3,6 +3,7 @@
 
 #include "Characters/SABaseCharacter.h"
 #include "AnimInstances/SABaseAnimInstance.h"
+#include "TimerManager.h"
 // Sets default values
 ASABaseCharacter::ASABaseCharacter()
 {
@@ -31,4 +32,30 @@ FVector2D ASABaseCharacter::GetMoveVector() const
 {
 	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
 	return FVector2D(LocalVelocity.Y, LocalVelocity.X);
+}
+
+void ASABaseCharacter::GetDamage(AActor* Attacker)
+{
+	if (CharacterState == ECharacterState::Dead) return;
+	if (IsValid(Attacker) && Attacker != this)
+	{
+		const FVector Direction = (Attacker->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		if (!Direction.IsNearlyZero())
+		{
+			FRotator FacingRotation = GetActorRotation();
+			FacingRotation.Yaw = Direction.Rotation().Yaw;
+			SetActorRotation(FacingRotation);
+		}
+	}
+	SetCharacterState(ECharacterState::Damaged);
+	GetWorldTimerManager().SetTimer(DamageRecoveryTimerHandle, this,
+		&ASABaseCharacter::FinishDamageRecovery, 0.85f, false);
+}
+
+void ASABaseCharacter::FinishDamageRecovery()
+{
+	if (CharacterState == ECharacterState::Damaged)
+	{
+		SetCharacterState(ECharacterState::Idle);
+	}
 }

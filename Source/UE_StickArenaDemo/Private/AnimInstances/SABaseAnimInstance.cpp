@@ -27,17 +27,16 @@ void USABaseAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
 void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 {
 	const UAnimMontage* Montage = WeaponType == EWeaponType::None ? PunchMontage : SwordMontage;
-	if (!Montage || AttackNames.IsEmpty()) return;
+	if (!IsValid(OwningCharacter) || !Montage || AttackNames.IsEmpty()) return;
 	MaxAttackCount = AttackNames.Num();
-	if (bAttacking) return;
-	bAttacking = true;
-	
+	if (OwningCharacter->GetCharacterState() != ECharacterState::Idle) return;
+	OwningCharacter->SetCharacterState(ECharacterState::Attack);
 	switch (WeaponType)
 	{
 		case EWeaponType::None:
 			PlayPunch();
 			break;
-		case EWeaponType::Weapon:
+		case EWeaponType::Sword:
 			PlaySword();
 			break;
 	}	
@@ -89,12 +88,17 @@ void USABaseAnimInstance::OnNotifyBegin(FName NotifyName, const FBranchingPointN
 
 void USABaseAnimInstance::SetAttackEnabled()
 {
-	bAttacking = false;
+	if (IsValid(OwningCharacter) && OwningCharacter->GetCharacterState() == ECharacterState::Attack)
+	{
+		OwningCharacter->SetCharacterState(ECharacterState::Idle);
+	}
 }
 
 void USABaseAnimInstance::DetectPunchAttack()
 {
 	if (!IsValid(OwningCharacter) || !GetWorld()) return;
+	if (OwningCharacter->GetCharacterState() == ECharacterState::Damaged
+		|| OwningCharacter->GetCharacterState() == ECharacterState::Dead) return;
 	const FVector Forward = OwningCharacter->GetActorForwardVector();
 	const FVector Start = OwningCharacter->GetActorLocation() + Forward * 5.0f;
 	const FVector End = Start + Forward * 50.0f;
@@ -120,9 +124,19 @@ void USABaseAnimInstance::DetectPunchAttack()
 	}
 	DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, 50.0f, 20.0f, FRotationMatrix::MakeFromZ(Forward).ToQuat(), FColor::Green, false, 2.0f);
 	TSet<ASALevelObject*> HitObjects;
+	TSet<ASABaseCharacter*> HitCharacters;
 	for (const FHitResult& HitResult : HitResults)
 	{
-		if (ASALevelObject* LevelObject = Cast<ASALevelObject>(HitResult.GetActor()))
+		if (ASABaseCharacter* HitCharacter = Cast<ASABaseCharacter>(HitResult.GetActor()))
+		{
+			if (IsValid(HitCharacter) && HitCharacter != OwningCharacter && !HitCharacters.Contains(HitCharacter))
+			{
+				HitCharacters.Add(HitCharacter);
+				SADebugHelper::Print(TEXT("HelloWorld"));
+				HitCharacter->GetDamage(OwningCharacter);
+			}
+		}
+		else if (ASALevelObject* LevelObject = Cast<ASALevelObject>(HitResult.GetActor()))
 		{
 			if (!HitObjects.Contains(LevelObject))
 			{

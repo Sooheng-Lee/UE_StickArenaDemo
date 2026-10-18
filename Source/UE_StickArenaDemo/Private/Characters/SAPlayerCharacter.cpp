@@ -137,6 +137,7 @@ void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
 
 void ASAPlayerCharacter::RotateToMouse(float DeltaTime)
 {
+	if (GetCharacterState() == ECharacterState::Damaged) return;
 	if (!PC) return;
 	FHitResult HitResult;
 	const bool bHit = PC->GetHitResultUnderCursor(ECC_Visibility, false, HitResult);

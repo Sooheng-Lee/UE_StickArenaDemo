@@ -22,7 +22,11 @@ ASAEnemyCharacter::ASAEnemyCharacter()
 	GetCharacterMovement()->PrimaryComponentTick.bStartWithTickEnabled = false;
 	GetCharacterMovement()->SetAutoActivate(false);
 	GetCharacterMovement()->bOrientRotationToMovement = false;
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	// Receive attack sweeps without adding local physics to the network proxy.
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	GetCapsuleComponent()->SetCollisionObjectType(ECC_Pawn);
+	GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Ignore);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	GetMesh()->AddTickPrerequisiteActor(this);
@@ -78,7 +82,9 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
 	if (bFirstState || FVector::DistSquared(GetActorLocation(), State.Position) > FMath::Square(TeleportDistance))
-		SetActorLocationAndRotation(State.Position, State.Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+		SetActorLocationAndRotation(State.Position,
+			GetCharacterState() == ECharacterState::Damaged ? GetActorRotation() : State.Rotation,
+			false, nullptr, ETeleportType::TeleportPhysics);
 	GetCharacterMovement()->SetMovementMode(State.State == ESAPlayerActivity::Falling ? MOVE_Falling : MOVE_Walking);
 	GetCharacterMovement()->Velocity = State.Velocity;
 	if (bPlayAttack) Attack();
@@ -91,7 +97,8 @@ void ASAEnemyCharacter::Tick(float DeltaSeconds)
 	const double Age = FMath::Clamp(FPlatformTime::Seconds() - LastStateTime, 0.0, static_cast<double>(MaxExtrapolationTime));
 	const FVector Target = NetworkState.Position + NetworkState.Velocity * Age;
 	const float Alpha = NetworkInterpSpeed > 0.0f ? 1.0f - FMath::Exp(-NetworkInterpSpeed * FMath::Max(DeltaSeconds, 0.0f)) : 1.0f;
-	const FQuat Rotation = FQuat::Slerp(GetActorQuat(), NetworkState.Rotation.Quaternion(), Alpha);
+	const FQuat Rotation = GetCharacterState() == ECharacterState::Damaged
+		? GetActorQuat() : FQuat::Slerp(GetActorQuat(), NetworkState.Rotation.Quaternion(), Alpha);
 	SetActorLocationAndRotation(FMath::Lerp(GetActorLocation(), Target, Alpha), Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 }
 
