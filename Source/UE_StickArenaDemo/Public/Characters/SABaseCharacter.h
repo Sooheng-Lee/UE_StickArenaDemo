@@ -8,6 +8,7 @@
 
 class USABaseAnimInstance;
 class ASAWeaponActor;
+class USAStatusComponent;
 UCLASS()
 class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 {
@@ -16,6 +17,8 @@ class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 public:
 	// Sets default values for this character's properties
 	ASABaseCharacter();
+	UFUNCTION(BlueprintPure, Category="Status")
+	USAStatusComponent* GetStatusComponent() const { return StatusComponent; }
 	virtual FVector2D GetMoveVector() const;
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	virtual void GetDamage(AActor* Attacker = nullptr);
@@ -36,6 +39,9 @@ protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
 	EWeaponType WeaponType = EWeaponType::None;
 	TObjectPtr<ASAWeaponActor> OwnedWeapon = nullptr;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Status")
+	TObjectPtr<USAStatusComponent> StatusComponent;
 
 private:
 	FTimerHandle DamageRecoveryTimerHandle;

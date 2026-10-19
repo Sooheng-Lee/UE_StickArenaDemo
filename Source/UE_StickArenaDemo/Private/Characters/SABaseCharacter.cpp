@@ -2,6 +2,7 @@
 
 
 #include "Characters/SABaseCharacter.h"
+#include "Components/SAStatusComponent.h"
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "TimerManager.h"
 #include "Items/SACRWeapon.h"
@@ -11,6 +12,7 @@ ASABaseCharacter::ASABaseCharacter()
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = false;
 	PrimaryActorTick.bStartWithTickEnabled = false;
+	StatusComponent = CreateDefaultSubobject<USAStatusComponent>(TEXT("StatusComponent"));
 
 }
 
@@ -30,8 +32,23 @@ void ASABaseCharacter::Attack()
 {
 	// Remote characters assign their mesh/AnimInstance after construction.
 	AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
-	if (!AnimInstance) return;
+	if (!AnimInstance || CharacterState != ECharacterState::Idle) return;
 	AnimInstance->PlayAttackMontage(WeaponType);
+	// Only consume a use when a weapon attack actually starts.
+	if (CharacterState != ECharacterState::Attack || WeaponType == EWeaponType::None || !StatusComponent) return;
+
+	StatusComponent->Ammo = FMath::Max(0, StatusComponent->Ammo - 1);
+	if (StatusComponent->Ammo == 0)
+	{
+		ASAWeaponActor* Weapon = GetWeapon();
+		SetWeapon(nullptr);
+		SetWeaponType(EWeaponType::None);
+		if (IsValid(Weapon))
+		{
+			Weapon->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+			Weapon->Destroy();
+		}
+	}
 }
 
 FVector2D ASABaseCharacter::GetMoveVector() const
