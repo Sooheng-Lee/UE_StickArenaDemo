@@ -15,6 +15,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Combat", meta=(ClampMin="0.0"))
 	float DefaultDamage = 5.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Combat", meta=(ClampMin="0.0"))
+	float Defense = 2.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Health", meta=(ClampMin="0.0"))
 	float HP = 100.0f;
 

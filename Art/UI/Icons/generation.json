@@ -1,0 +1,17 @@
+{
+  "generator": "Built-in image_gen tool",
+  "assets": [
+    {
+      "file": "T_UI_Attack.png",
+      "prompt": "Use case: stylized-concept. Asset type: production game HUD icon, single isolated transparent PNG. Subject: two crossed short medieval swords, blade points upward, balanced symmetrical X silhouette. Style: clean stylized fantasy RPG HUD, warm antique gold metal, pale gold highlights, restrained dark bronze bevels, strong readable silhouette at 32x32 pixels. Centered square composition, subject fills 85 percent of the canvas. No text, letters, numbers, surrounding frame, background, shadow outside the silhouette, glow, watermark or extra objects. Actual transparent background. This belongs to a coordinated set of ATK DEF AMMO icons."
+    },
+    {
+      "file": "T_UI_Defense.png",
+      "prompt": "Use case: stylized-concept. Asset type: production game HUD icon, single isolated transparent PNG. Subject: one medieval kite shield with a small raised central crest, facing directly forward. Style: clean stylized fantasy RPG HUD, warm antique gold metal, pale gold highlights, restrained dark bronze bevels, strong readable silhouette at 32x32 pixels. Centered square composition, subject fills 85 percent of the canvas. No text, letters, numbers, surrounding frame, background, shadow outside the silhouette, glow, watermark or extra objects. Actual transparent background. This belongs to a coordinated set of ATK DEF AMMO icons."
+    },
+    {
+      "file": "T_UI_Ammo.png",
+      "prompt": "Use case: stylized-concept. Asset type: production game HUD icon, single isolated transparent PNG. Subject: three upright rifle cartridges side by side, central cartridge slightly taller. Style: clean stylized fantasy RPG HUD, warm antique gold metal, pale gold highlights, restrained dark bronze bevels, strong readable silhouette at 32x32 pixels. Centered square composition, subject fills 85 percent of the canvas. No text, letters, numbers, surrounding frame, background, shadow outside the silhouette, glow, watermark or extra objects. Actual transparent background. This belongs to a coordinated set of ATK DEF AMMO icons."
+    }
+  ]
+}

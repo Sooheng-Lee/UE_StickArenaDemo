@@ -35,7 +35,7 @@ void ASABaseCharacter::Attack()
 	if (!AnimInstance || CharacterState != ECharacterState::Idle) return;
 	AnimInstance->PlayAttackMontage(WeaponType);
 	// Only consume a use when a weapon attack actually starts.
-	if (CharacterState != ECharacterState::Attack || WeaponType == EWeaponType::None || !StatusComponent) return;
+	if (IsNetworkProxy() || CharacterState != ECharacterState::Attack || WeaponType == EWeaponType::None || !StatusComponent) return;
 
 	StatusComponent->Ammo = FMath::Max(0, StatusComponent->Ammo - 1);
 	if (StatusComponent->Ammo == 0)
@@ -75,7 +75,8 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 			}
 			if (StatusComponent)
 			{
-				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - FMath::Max(0.0f, TotalDamage));
+				const float AppliedDamage = FMath::Max(1.0f, TotalDamage - FMath::Max(0.0f, StatusComponent->Defense));
+				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
 			}
 		}
 

@@ -8,9 +8,9 @@ public class UE_StickArenaDemo : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "GameplayTags" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "GameplayTags", "UMG" });
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets", "Slate", "SlateCore" });
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd"); // Real-map spawn automation tests only.

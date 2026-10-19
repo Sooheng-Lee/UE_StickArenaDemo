@@ -9,6 +9,7 @@
 class FSocket;
 class FInternetAddr;
 class ASAEnemyCharacter;
+class ASAWeaponActor;
 
 // Registers local players and sends actions to the standalone UDP console server.
 UCLASS(ClassGroup=(Networking), meta=(BlueprintSpawnableComponent))
@@ -21,6 +22,7 @@ public:
 	void SendAction(const TCHAR* Action, const FVector& Input = FVector::ZeroVector);
 	void SetMovementInput(const FVector& Input);
     void SendTreasureHit(const FString& Id);
+	void RequestTreasurePickup(ASAWeaponActor* Weapon);
 	UFUNCTION(BlueprintPure, Category="UDP")
 	ASAEnemyCharacter* GetRemoteCharacter(const FString& PlayerId) const;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
@@ -50,16 +52,24 @@ private:
     FDelegateHandle PreExitHandle;
     bool bLeaving = false;
     friend class FSATreasureNetworkTest;
+	friend class FSATreasurePickupIntegrationTest;
     void ReceiveTreasure(const FString& Packet);
     void ClearTreasure();
     UPROPERTY()
     TMap<FString, TObjectPtr<AActor>> TreasureActors;
     TMap<FString, int32> TreasureHits;
+	TMap<FString, FString> TreasureOwners;
+	TSet<FString> CompletedLocalPickups;
     FString TreasureEpoch;
     TSet<FString> RetiredTreasureEpochs;
     struct FPendingTreasureHit { FString Packet; double Expires = 0; double NextSend = 0; };
     TMap<FString, FPendingTreasureHit> PendingTreasureHits;
     int64 TreasureHitSequence = 0;
+	struct FPendingTreasurePickup { FString Packet; TWeakObjectPtr<ASAWeaponActor> Weapon; double NextSend = 0; };
+	TMap<FString, FPendingTreasurePickup> PendingTreasurePickups;
+	int64 TreasurePickupSequence = 0;
+	TMap<FString, int64> RequestedPickupSequences;
+	int64 LastAppliedPickupSequence = 0;
     UPROPERTY(EditDefaultsOnly, Category="Treasure")
     TSubclassOf<AActor> SwordItemClass;
 	void SendRegistration();

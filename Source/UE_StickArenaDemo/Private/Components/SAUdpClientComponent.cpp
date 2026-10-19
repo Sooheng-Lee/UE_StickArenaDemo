@@ -15,6 +15,7 @@
 #include "Misc/CoreDelegates.h"
 #include "LevelObjects/SATreasureBox.h"
 #include "Items/SAWeaponActor.h"
+#include "Components/SAStatusComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSAUdp, Log, All);
@@ -96,7 +97,7 @@ namespace
 	{
 		TArray<FString> Fields;
 		Packet.ParseIntoArray(Fields, TEXT("|"), false);
-		if (Fields.Num() != 11 || Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
+		if ((Fields.Num() != 11 && Fields.Num() != 15) || Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
 		const TCHAR* Keys[] = { TEXT("session="), TEXT("seq="), TEXT("action="), TEXT("state="),
 			TEXT("input="), TEXT("pos="), TEXT("vel="), TEXT("rot="), TEXT("attack=") };
 		for (int32 Index = 0; Index < 9; ++Index)
@@ -124,6 +125,29 @@ namespace
 		if (!ParseVector(Fields[6], State.MovementInput) || !ParseVector(Fields[7], State.Position)
 			|| !ParseVector(Fields[8], State.Velocity) || !ParseVector(Fields[9], Rotation)) return false;
 		State.Rotation = FRotator(Rotation.X, Rotation.Y, Rotation.Z);
+		if (Fields.Num() == 15)
+		{
+			const TCHAR* WeaponKeys[] = { TEXT("weapon="), TEXT("weaponid="), TEXT("ammo="), TEXT("maxammo=") };
+			for (int32 Index = 0; Index < 4; ++Index)
+				if (!Fields[Index + 11].RemoveFromStart(WeaponKeys[Index], ESearchCase::CaseSensitive)) return false;
+			if (!DecodeRegistrationField(Fields[11], State.WeaponClassPath)) return false;
+			State.WeaponInstanceId = Fields[12];
+			if (!State.WeaponClassPath.IsEmpty())
+			{
+				if (State.WeaponInstanceId.Len() != 32) return false;
+				for (TCHAR Digit : State.WeaponInstanceId) if (!FChar::IsHexDigit(Digit)) return false;
+			}
+			else if (!State.WeaponInstanceId.IsEmpty()) return false;
+			const auto ParseAmmo = [](const FString& Text, int32& Value)
+			{
+				const FTCHARToUTF8 Utf8(*Text);
+				const auto Result = std::from_chars(Utf8.Get(), Utf8.Get() + Utf8.Length(), Value);
+				return Result.ec == std::errc{} && Result.ptr == Utf8.Get() + Utf8.Length() && Value >= 0 && Value <= 1000000;
+			};
+			if (!ParseAmmo(Fields[13], State.Ammo) || !ParseAmmo(Fields[14], State.MaxAmmo) || State.Ammo > State.MaxAmmo) return false;
+			if (State.WeaponClassPath.IsEmpty() && (State.Ammo != 0 || State.MaxAmmo != 0)) return false;
+			State.bHasWeaponState = true;
+		}
 		return true;
 	}
 }
@@ -201,12 +225,31 @@ void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input
 		: !Input.IsNearlyZero() || !LocalPlayerState.Velocity.IsNearlyZero(1.0f) ? ESAPlayerActivity::Moving
 		: ESAPlayerActivity::Idle;
 	const FSAPlayerNetworkState& State = LocalPlayerState;
+	LocalPlayerState.bHasWeaponState = true;
+	LocalPlayerState.WeaponClassPath.Reset();
+	LocalPlayerState.WeaponInstanceId.Reset();
+	LocalPlayerState.Ammo = 0;
+	LocalPlayerState.MaxAmmo = 0;
+	if (const ASABaseCharacter* SACharacter = Cast<ASABaseCharacter>(Pawn))
+	{
+		if (const ASAWeaponActor* Weapon = SACharacter->GetWeapon(); IsValid(Weapon))
+		{
+			LocalPlayerState.WeaponClassPath = Weapon->GetClass()->GetPathName();
+			LocalPlayerState.WeaponInstanceId = Weapon->GetWeaponInstanceId();
+			if (const USAStatusComponent* Status = SACharacter->GetStatusComponent())
+			{
+				LocalPlayerState.MaxAmmo = FMath::Clamp(Status->MaxAmmo, 0, 1000000);
+				LocalPlayerState.Ammo = FMath::Clamp(Status->Ammo, 0, LocalPlayerState.MaxAmmo);
+			}
+		}
+	}
 	const FString Packet = FString::Printf(
-		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld"),
+		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld|weapon=%s|weaponid=%s|ammo=%d|maxammo=%d"),
 		*State.PlayerId, State.Sequence, *State.Action, ActivityName(State.State),
 		State.MovementInput.X, State.MovementInput.Y, State.MovementInput.Z,
 		State.Position.X, State.Position.Y, State.Position.Z, State.Velocity.X, State.Velocity.Y, State.Velocity.Z,
-		State.Rotation.Pitch, State.Rotation.Yaw, State.Rotation.Roll, State.AttackSequence);
+		State.Rotation.Pitch, State.Rotation.Yaw, State.Rotation.Roll, State.AttackSequence,
+		*EncodeRegistrationField(State.WeaponClassPath), *State.WeaponInstanceId, State.Ammo, State.MaxAmmo);
 	SendPacket(Packet);
 }
 
@@ -377,6 +420,22 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
             It.Value().NextSend = TreasureNow + 0.2;
         }
     }
+	for (auto It = PendingTreasurePickups.CreateIterator(); It; ++It)
+	{
+		ASAWeaponActor* Item = It.Value().Weapon.Get();
+		if (!IsValid(Item) || FVector::DistSquared(Pawn->GetActorLocation(), Item->GetActorLocation()) > FMath::Square(350.0f))
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+		if (bRegistrationAcknowledged && TreasureNow >= It.Value().NextSend)
+		{
+			// Refresh position before retrying so a pickup immediately after movement is valid.
+			SendAction(TEXT("STATE"), MovementInput);
+			SendPacket(It.Value().Packet);
+			It.Value().NextSend = TreasureNow + 0.2;
+		}
+	}
 	RegistrationElapsed += DeltaTime;
 	// Periodic registration also recovers if the server restarts or expires a session.
 	if (RegistrationElapsed >= (bRegistrationAcknowledged ? 3.0f : 1.0f)) SendRegistration();
@@ -453,13 +512,34 @@ void USAUdpClientComponent::ClearTreasure()
     TreasureActors.Reset();
     TreasureHits.Reset();
     PendingTreasureHits.Reset();
+	TreasureOwners.Reset();
+	CompletedLocalPickups.Reset();
+	PendingTreasurePickups.Reset();
+	RequestedPickupSequences.Reset();
+	LastAppliedPickupSequence = 0;
+}
+
+void USAUdpClientComponent::RequestTreasurePickup(ASAWeaponActor* Weapon)
+{
+	if (!IsValid(Weapon) || Weapon->GetTreasureEpoch() != TreasureEpoch || Weapon->GetTreasureId().IsEmpty()
+		|| Weapon->GetAttachParentActor() || SessionId.IsEmpty()) return;
+	const FString& Id = Weapon->GetTreasureId();
+	if (TreasureActors.FindRef(Id) != Weapon || TreasureOwners.Contains(Id) || PendingTreasurePickups.Contains(Id)) return;
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn || !Pawn->IsLocallyControlled() || !EnsureSocket()) return;
+	FPendingTreasurePickup Request;
+	Request.Packet = FString::Printf(TEXT("SA4|type=PICKUP|epoch=%s|session=%s|id=%s|seq=%lld"),
+		*TreasureEpoch, *SessionId, *Id, ++TreasurePickupSequence);
+	Request.Weapon = Weapon;
+	RequestedPickupSequences.Add(Id, TreasurePickupSequence);
+	PendingTreasurePickups.Add(Id, MoveTemp(Request));
 }
 
 void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
 {
     TArray<FString> Fields;
     Packet.ParseIntoArray(Fields, TEXT("|"), false);
-    if (Fields.Num() != 7 || Fields[0] != TEXT("SA4") || Fields[1] != TEXT("type=TREASURE_STATE")) return;
+    if ((Fields.Num() != 7 && Fields.Num() != 8) || Fields[0] != TEXT("SA4") || Fields[1] != TEXT("type=TREASURE_STATE")) return;
     const TCHAR* Keys[] = {TEXT("epoch="), TEXT("id="), TEXT("item="), TEXT("hits="), TEXT("pos=")};
     for (int32 I = 0; I < 5; ++I) if (!Fields[I+2].RemoveFromStart(Keys[I], ESearchCase::CaseSensitive)) return;
     const auto IsDigits = [](const FString& S) {
@@ -469,6 +549,13 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
     };
     if (!IsDigits(Fields[2]) || !IsDigits(Fields[3]) || Fields[4] != TEXT("0")
         || (Fields[5] != TEXT("0") && Fields[5] != TEXT("1") && Fields[5] != TEXT("2") && Fields[5] != TEXT("3"))) return;
+	FString ItemOwner;
+	if (Fields.Num() == 8)
+	{
+		if (!Fields[7].RemoveFromStart(TEXT("owner="), ESearchCase::CaseSensitive) || Fields[7].Len() != 32 || Fields[5] != TEXT("3")) return;
+		for (TCHAR Digit : Fields[7]) if (!FChar::IsHexDigit(Digit)) return;
+		ItemOwner = Fields[7];
+	}
     FVector Position;
     if (!ParseVector(Fields[6], Position) || Position.GetAbsMax() > 1.e8 || !GetWorld()) return;
     if (TreasureEpoch != Fields[2])
@@ -480,9 +567,58 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
     }
     const FString& Id = Fields[3];
     const int32 Hits = FCString::Atoi(*Fields[5]);
+	// Collected is terminal for this epoch: a delayed drop snapshot cannot revive it.
+	if (const FString* PreviousOwner = TreasureOwners.Find(Id))
+		if (ItemOwner.IsEmpty() || *PreviousOwner != ItemOwner) return;
+    AActor* Existing = TreasureActors.FindRef(Id);
+	if (!ItemOwner.IsEmpty())
+	{
+		TreasureOwners.Add(Id, ItemOwner);
+		TreasureHits.Add(Id, Hits);
+		PendingTreasureHits.Remove(Id);
+		PendingTreasurePickups.Remove(Id);
+		if (ItemOwner == SessionId && !CompletedLocalPickups.Contains(Id))
+		{
+			const int64 PickupSequence = RequestedPickupSequences.FindRef(Id);
+			// An older lost grant may arrive after a newer weapon has already been equipped.
+			if (PickupSequence < LastAppliedPickupSequence)
+			{
+				CompletedLocalPickups.Add(Id);
+				if (IsValid(Existing)) Existing->Destroy();
+				TreasureActors.Remove(Id);
+				return;
+			}
+			ASABaseCharacter* Character = Cast<ASABaseCharacter>(GetOwner());
+			ASAWeaponActor* Weapon = Cast<ASAWeaponActor>(Existing);
+			if (!IsValid(Weapon) && SwordItemClass && Character)
+			{
+				if (IsValid(Existing)) Existing->Destroy();
+				TreasureActors.Remove(Id);
+				Weapon = GetWorld()->SpawnActorDeferred<ASAWeaponActor>(SwordItemClass, FTransform(Position),
+					Character, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+				if (Weapon)
+				{
+					Weapon->SetNetworkTreasure(TreasureEpoch, Id);
+					Weapon->DisablePickup();
+					Weapon->FinishSpawning(FTransform(Position));
+					TreasureActors.Add(Id, Weapon);
+				}
+			}
+			if (IsValid(Weapon) && Character && (Character->GetWeapon() == Weapon || Weapon->EquipToCharacter(Character)))
+			{
+				CompletedLocalPickups.Add(Id);
+				LastAppliedPickupSequence = FMath::Max(LastAppliedPickupSequence, PickupSequence);
+				TreasureActors.Remove(Id); // Inventory is no longer a ground-drop actor.
+				SendAction(TEXT("STATE"), MovementInput);
+			}
+			return;
+		}
+		if (IsValid(Existing)) Existing->Destroy();
+		TreasureActors.Remove(Id);
+		return;
+	}
     const int32* Previous = TreasureHits.Find(Id);
     if (Previous && *Previous > Hits) return;
-    AActor* Existing = TreasureActors.FindRef(Id);
     if (Previous && *Previous == Hits) return; // Includes locally collected/destroyed items.
     if (ASATreasureBox* Box = Cast<ASATreasureBox>(Existing))
     {
@@ -510,7 +646,17 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
     }
     else if (SwordItemClass)
     {
-        Spawned = GetWorld()->SpawnActor<AActor>(SwordItemClass, Position, FRotator::ZeroRotator, Params);
+		ASAWeaponActor* Weapon = GetWorld()->SpawnActorDeferred<ASAWeaponActor>(SwordItemClass, FTransform(Position),
+			nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (Weapon)
+		{
+			Weapon->SetNetworkTreasure(TreasureEpoch, Id);
+			// Store identity before FinishSpawning can raise the initial overlap.
+			TreasureActors.Add(Id, Weapon);
+			TreasureHits.Add(Id, Hits);
+			Weapon->FinishSpawning(FTransform(Position));
+		}
+		Spawned = Weapon;
     }
     if (Spawned) { TreasureActors.Add(Id, Spawned); TreasureHits.Add(Id, Hits); }
 }

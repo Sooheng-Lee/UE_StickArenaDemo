@@ -14,6 +14,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UDataAsset_InputConfigs;
 class USAUdpClientComponent;
+class USAPlayerWidget;
 UCLASS()
 class UE_STICKARENADEMO_API ASAPlayerCharacter : public ASABaseCharacter
 {
@@ -23,10 +24,22 @@ public:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void Tick(float DeltaTime) override;
 	virtual FVector2D GetMoveVector() const override;
+	virtual void PawnClientRestart() override;
+	virtual void NotifyControllerChanged() override;
+
+	UFUNCTION(BlueprintPure, Category="HUD")
+	USAPlayerWidget* GetPlayerWidget() const { return PlayerWidget; }
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 protected:
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD")
+	TSubclassOf<USAPlayerWidget> PlayerWidgetClass;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category="HUD")
+	TObjectPtr<USAPlayerWidget> PlayerWidget;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Networking")
 	USAUdpClientComponent* UdpClient;
 
@@ -61,4 +74,5 @@ private:
 	bool bBrakingForTurn = false;
 private:
 	void RotateToMouse(float DeltaTime);
+	void RefreshPlayerWidget();
 };

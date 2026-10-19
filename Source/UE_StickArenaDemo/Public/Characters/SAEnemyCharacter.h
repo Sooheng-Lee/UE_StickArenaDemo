@@ -18,6 +18,7 @@ public:
 	void ApplyNetworkState(const FSAPlayerNetworkState& State);
 	virtual void Tick(float DeltaSeconds) override;
 	virtual FVector GetVelocity() const override;
+	virtual bool IsNetworkProxy() const override { return true; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Remote Player")
 	FSAPlayerRegistration PlayerRegistration;
@@ -26,6 +27,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UPROPERTY(EditDefaultsOnly, Category="Remote Player", meta=(ClampMin="0.0"))
 	float NetworkInterpSpeed = 15.0f;
@@ -35,6 +37,7 @@ protected:
 	float MaxExtrapolationTime = 0.1f;
 
 private:
+	void ApplyWeaponState(const FSAPlayerNetworkState& State);
 	bool bHasNetworkState = false;
 	bool bAppearanceInitialized = false;
 	double LastStateTime = 0.0;

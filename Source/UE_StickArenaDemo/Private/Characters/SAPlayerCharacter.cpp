@@ -10,10 +10,13 @@
 #include "Components/SAUdpClientComponent.h"
 #include "GamePlay/SAGameplayTags.h"
 #include "SADebugHelper.h"
+#include "Widget/SAPlayerWidget.h"
+#include "GameFramework/PlayerController.h"
 ASAPlayerCharacter::ASAPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+	PlayerWidgetClass = USAPlayerWidget::StaticClass();
 	UdpClient = CreateDefaultSubobject<USAUdpClientComponent>(TEXT("UDP Client"));
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Camera Boom"));
 	CameraBoom->SetupAttachment(GetRootComponent());
@@ -78,6 +81,50 @@ void ASAPlayerCharacter::BeginPlay()
 	if (PC) {
 		PC->bShowMouseCursor = true;
 	}
+	RefreshPlayerWidget();
+}
+
+void ASAPlayerCharacter::PawnClientRestart()
+{
+	Super::PawnClientRestart();
+	RefreshPlayerWidget();
+}
+
+void ASAPlayerCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+	if (HasActorBegunPlay()) RefreshPlayerWidget();
+}
+
+void ASAPlayerCharacter::RefreshPlayerWidget()
+{
+	PC = Cast<APlayerController>(GetController());
+	if (PlayerWidget && (!PC || PlayerWidget->GetOwningPlayer() != PC || !IsLocallyControlled()))
+	{
+		PlayerWidget->RemoveFromParent();
+		PlayerWidget = nullptr;
+	}
+	if (!PC || !PC->IsLocalController() || !PC->GetLocalPlayer() || !IsLocallyControlled() || !PlayerWidgetClass) return;
+	PC->bShowMouseCursor = true;
+	if (!PlayerWidget)
+	{
+		PlayerWidget = CreateWidget<USAPlayerWidget>(PC, PlayerWidgetClass);
+		if (PlayerWidget)
+		{
+			PlayerWidget->SetStatusComponent(GetStatusComponent());
+			PlayerWidget->AddToPlayerScreen();
+		}
+	}
+}
+
+void ASAPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (PlayerWidget)
+	{
+		PlayerWidget->RemoveFromParent();
+		PlayerWidget = nullptr;
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASAPlayerCharacter::Movement(const FInputActionValue& Value)

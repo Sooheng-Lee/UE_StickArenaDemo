@@ -36,6 +36,18 @@ struct UE_STICKARENADEMO_API FSAPlayerNetworkState
 	FVector Velocity = FVector::ZeroVector;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FRotator Rotation = FRotator::ZeroRotator;
+
+	// False for legacy snapshots that did not carry equipment information.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bHasWeaponState = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FString WeaponClassPath;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FString WeaponInstanceId;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 Ammo = 0;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 MaxAmmo = 0;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSAOnRemotePlayerState, const FSAPlayerNetworkState&, PlayerState);

@@ -4,6 +4,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Components/SAStatusComponent.h"
+#include "Items/SAWeaponActor.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSAEnemy, Log, All);
 
@@ -78,6 +80,8 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	if (State.PlayerId != PlayerRegistration.PlayerId || (bHasNetworkState && State.Sequence <= NetworkState.Sequence)) return;
 	const bool bFirstState = !bHasNetworkState;
 	const bool bPlayAttack = bFirstState ? State.Action == TEXT("ATTACK") : State.AttackSequence > NetworkState.AttackSequence;
+	// Equipment must be installed before choosing the received attack's montage.
+	ApplyWeaponState(State);
 	NetworkState = State;
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
@@ -88,6 +92,51 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	GetCharacterMovement()->SetMovementMode(State.State == ESAPlayerActivity::Falling ? MOVE_Falling : MOVE_Walking);
 	GetCharacterMovement()->Velocity = State.Velocity;
 	if (bPlayAttack) Attack();
+}
+
+void ASAEnemyCharacter::ApplyWeaponState(const FSAPlayerNetworkState& State)
+{
+	if (!State.bHasWeaponState) return;
+	ASAWeaponActor* Weapon = GetWeapon();
+	if (State.WeaponClassPath.IsEmpty())
+	{
+		SetWeapon(nullptr);
+		SetWeaponType(EWeaponType::None);
+		if (IsValid(Weapon)) Weapon->Destroy();
+	}
+	else if (!IsValid(Weapon) || Weapon->GetClass()->GetPathName() != State.WeaponClassPath
+		|| Weapon->GetWeaponInstanceId() != State.WeaponInstanceId)
+	{
+		if (!State.WeaponClassPath.StartsWith(TEXT("/Game/Items/Weapons/"))
+			&& !State.WeaponClassPath.StartsWith(TEXT("/Script/UE_StickArenaDemo."))) return;
+		UClass* WeaponClass = LoadClass<ASAWeaponActor>(nullptr, *State.WeaponClassPath);
+		if (!WeaponClass || !GetMesh()->DoesSocketExist(TEXT("WeaponSocket"))) return;
+		ASAWeaponActor* NewWeapon = GetWorld()->SpawnActorDeferred<ASAWeaponActor>(WeaponClass,
+			GetActorTransform(), this, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+		if (!NewWeapon) return;
+		// Disable collection before component registration can trigger overlap callbacks.
+		NewWeapon->DisablePickup();
+		NewWeapon->SetWeaponInstanceId(State.WeaponInstanceId);
+		NewWeapon->FinishSpawning(GetActorTransform());
+		if (!NewWeapon->EquipToCharacter(this))
+		{
+			NewWeapon->Destroy();
+			return;
+		}
+	}
+	if (USAStatusComponent* Status = GetStatusComponent())
+	{
+		Status->MaxAmmo = FMath::Max(0, State.MaxAmmo);
+		Status->Ammo = FMath::Clamp(State.Ammo, 0, Status->MaxAmmo);
+	}
+}
+
+void ASAEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ASAWeaponActor* Weapon = GetWeapon();
+	SetWeapon(nullptr);
+	if (IsValid(Weapon)) Weapon->Destroy();
+	Super::EndPlay(EndPlayReason);
 }
 
 void ASAEnemyCharacter::Tick(float DeltaSeconds)

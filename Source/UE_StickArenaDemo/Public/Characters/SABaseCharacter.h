@@ -20,6 +20,7 @@ public:
 	UFUNCTION(BlueprintPure, Category="Status")
 	USAStatusComponent* GetStatusComponent() const { return StatusComponent; }
 	virtual FVector2D GetMoveVector() const;
+	virtual bool IsNetworkProxy() const { return false; }
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	virtual void GetDamage(AActor* Attacker = nullptr);
 	UFUNCTION(BlueprintCallable)
