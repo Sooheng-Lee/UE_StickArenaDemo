@@ -13,6 +13,10 @@ UCLASS()
 class UE_STICKARENADEMO_API ASAWeaponActor : public ASAItemActor
 {
 	GENERATED_BODY()
+public:
+	UFUNCTION(BlueprintPure, Category="Weapon Attribute")
+	float GetDamage() const { return Damage; }
+
 protected:
 	virtual void OwnItem(AActor* NewOwner);
 
@@ -20,7 +24,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category="Weapon Attribute", meta = (AllowPrivateAccess="true"))
 	EWeaponType WeaponType = EWeaponType::None;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon Attribute", meta = (AllowPrivateAccess="true"))
-	float Damage;
+	float Damage = 0.0f;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon Attribute", meta = (AllowPrivateAccess="true"))
 	float WalkSpeed;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon Attribute", meta = (AllowPrivateAccess="true",

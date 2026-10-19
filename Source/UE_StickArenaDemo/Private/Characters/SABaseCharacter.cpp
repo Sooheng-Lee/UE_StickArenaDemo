@@ -62,6 +62,23 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 	if (CharacterState == ECharacterState::Dead) return;
 	if (IsValid(Attacker) && Attacker != this)
 	{
+		if (const ASABaseCharacter* AttackingCharacter = Cast<ASABaseCharacter>(Attacker))
+		{
+			float TotalDamage = 0.0f;
+			if (const USAStatusComponent* AttackerStatus = AttackingCharacter->GetStatusComponent())
+			{
+				TotalDamage += AttackerStatus->DefaultDamage;
+			}
+			if (const ASAWeaponActor* AttackerWeapon = AttackingCharacter->GetWeapon(); IsValid(AttackerWeapon))
+			{
+				TotalDamage += AttackerWeapon->GetDamage();
+			}
+			if (StatusComponent)
+			{
+				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - FMath::Max(0.0f, TotalDamage));
+			}
+		}
+
 		const FVector Direction = (Attacker->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
 		if (!Direction.IsNearlyZero())
 		{
