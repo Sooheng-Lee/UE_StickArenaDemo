@@ -26,6 +26,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="Weapon Attribute")
 	float GetDamage() const { return Damage; }
 
+	UFUNCTION(BlueprintPure, Category="Weapon Attribute")
+	float GetWalkSpeed() const { return WalkSpeed; }
+
 protected:
 	virtual void OwnItem(AActor* NewOwner) override;
 

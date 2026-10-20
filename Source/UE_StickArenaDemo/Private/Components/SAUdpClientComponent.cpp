@@ -334,6 +334,7 @@ void USAUdpClientComponent::ReceivePackets()
 		if (!bAscii) continue;
 		Buffer[Received] = 0;
 		const FString Packet = UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer));
+		if (Packet.StartsWith(TEXT("SA6|type=MATCH_STATE|"))) { ReceiveMatchState(Packet); continue; }
         if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_STATE|"))) { ReceiveCrystal(Packet); continue; }
         if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_ACK|")))
         {
@@ -416,6 +417,58 @@ void USAUdpClientComponent::SetMovementInput(const FVector& Input)
 	if (MovementInput.Equals(Input, 0.01f)) return;
 	MovementInput = Input;
 	SendAction(Input.IsNearlyZero() ? TEXT("STOP") : TEXT("MOVE"), Input);
+}
+
+float USAUdpClientComponent::GetMatchRemainingSeconds() const
+{
+	return HasMatchTime() ? static_cast<float>(FMath::Max(0.0, MatchDeadline - FPlatformTime::Seconds())) : 0.0f;
+}
+
+void USAUdpClientComponent::ReceiveMatchState(const FString& Packet)
+{
+	TArray<FString> Fields;
+	Packet.ParseIntoArray(Fields, TEXT("|"), false);
+	if (Fields.Num() != 5 || Fields[0] != TEXT("SA6") || Fields[1] != TEXT("type=MATCH_STATE")
+		|| !Fields[2].RemoveFromStart(TEXT("epoch="), ESearchCase::CaseSensitive)
+		|| !Fields[3].RemoveFromStart(TEXT("seq="), ESearchCase::CaseSensitive)
+		|| !Fields[4].RemoveFromStart(TEXT("remaining_ms="), ESearchCase::CaseSensitive)) return;
+	if (Fields[2].IsEmpty() || Fields[2].Len() > 64 || RetiredMatchEpochs.Contains(Fields[2])) return;
+	for (TCHAR Digit : Fields[2]) if (!FChar::IsHexDigit(Digit)) return;
+	const auto ParseInteger = [](const FString& Text, int64& Value)
+	{
+		const FTCHARToUTF8 Utf8(*Text);
+		const auto Parsed = std::from_chars(Utf8.Get(), Utf8.Get() + Utf8.Length(), Value);
+		return Parsed.ec == std::errc{} && Parsed.ptr == Utf8.Get() + Utf8.Length();
+	};
+	int64 NewSequence = 0;
+	int64 RemainingMs = 0;
+	if (!ParseInteger(Fields[3], NewSequence) || NewSequence <= 0
+		|| !ParseInteger(Fields[4], RemainingMs) || RemainingMs < 0 || RemainingMs > 180000) return;
+	const bool bNewMatch = MatchEpoch != Fields[2];
+	if (!bNewMatch && NewSequence <= MatchSequence) return;
+	const double NewDeadline = FPlatformTime::Seconds() + RemainingMs / 1000.0;
+	if (bNewMatch)
+	{
+		if (!MatchEpoch.IsEmpty()) RetiredMatchEpochs.Add(MatchEpoch);
+		MatchEpoch = Fields[2];
+		MatchDeadline = NewDeadline;
+	}
+	else
+	{
+		// Packet delay/reordering must never add time or reopen an expired match.
+		MatchDeadline = FMath::Min(MatchDeadline, NewDeadline);
+	}
+	MatchSequence = NewSequence;
+	if (IsMatchExpired())
+	{
+		MovementInput = FVector::ZeroVector;
+		if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
+		{
+			Character->ConsumeMovementInputVector();
+			Character->GetCharacterMovement()->StopMovementImmediately();
+			Character->GetCharacterMovement()->ClearAccumulatedForces();
+		}
+	}
 }
 
 void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

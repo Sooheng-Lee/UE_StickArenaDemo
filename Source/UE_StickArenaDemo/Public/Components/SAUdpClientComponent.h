@@ -21,6 +21,12 @@ public:
 	USAUdpClientComponent();
 	void SendAction(const TCHAR* Action, const FVector& Input = FVector::ZeroVector);
 	void SetMovementInput(const FVector& Input);
+	UFUNCTION(BlueprintPure, Category="Match")
+	float GetMatchRemainingSeconds() const;
+	UFUNCTION(BlueprintPure, Category="Match")
+	bool HasMatchTime() const { return !MatchEpoch.IsEmpty(); }
+	UFUNCTION(BlueprintPure, Category="Match")
+	bool IsMatchExpired() const { return HasMatchTime() && GetMatchRemainingSeconds() <= 0.0f; }
     void SendTreasureHit(const FString& Id);
 	void SendCrystalHit(const FString& Id);
 	void RequestTreasurePickup(ASAWeaponActor* Weapon);
@@ -48,6 +54,12 @@ protected:
 	TSubclassOf<ASAEnemyCharacter> EnemyCharacterClass;
 
 private:
+	friend class FSAMatchTimerTest;
+	void ReceiveMatchState(const FString& Packet);
+	FString MatchEpoch;
+	TSet<FString> RetiredMatchEpochs;
+	int64 MatchSequence = 0;
+	double MatchDeadline = 0.0;
 	bool EnsureSocket();
 	friend class FSACrystalTowerEffectTest;
 	void ReceiveCrystal(const FString& Packet);

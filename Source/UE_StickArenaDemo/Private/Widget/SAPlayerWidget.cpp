@@ -3,6 +3,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Characters/SABaseCharacter.h"
 #include "Components/SAStatusComponent.h"
+#include "Components/SAUdpClientComponent.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
@@ -102,6 +103,12 @@ void USAPlayerWidget::BuildDefaultLayout()
 	};
 
 	UCanvasPanel* Stats = Panel(TEXT("CombatPanel"), FAnchors(0.0f, 0.0f), FMargin(28, 28, 280, 100), FVector2D::ZeroVector);
+	UCanvasPanel* Timer = Panel(TEXT("MatchTimerPanel"), FAnchors(0.5f, 0), FMargin(0, 28, 160, 60), FVector2D(0.5f, 0));
+	MatchTimeText = Text(TEXT("MatchTimeText"), TEXT("--:--"), 30, Gold);
+	MatchTimeText->SetJustification(ETextJustify::Center);
+	UCanvasPanelSlot* TimerSlot = Timer->AddChildToCanvas(MatchTimeText);
+	TimerSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+	TimerSlot->SetOffsets(FMargin(0));
 	Place(Stats, Icon(TEXT("AttackIcon"), AttackIconTexture), FVector2D(6, 2), FVector2D(34, 34));
 	Place(Stats, Text(TEXT("AttackLabel"), TEXT("ATK"), 22, FLinearColor::White), FVector2D(50, 0), FVector2D(90, 38));
 	AttackText = Text(TEXT("AttackText"), TEXT("0"), 22, FLinearColor::White);
@@ -178,6 +185,8 @@ void USAPlayerWidget::BuildDefaultLayout()
 void USAPlayerWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	if (!MatchClient && GetOwningPlayerPawn())
+		MatchClient = GetOwningPlayerPawn()->FindComponentByClass<USAUdpClientComponent>();
 	SetVisibility(ESlateVisibility::HitTestInvisible);
 	if (!StatusComponent)
 	{
@@ -195,6 +204,12 @@ void USAPlayerWidget::SetStatusComponent(USAStatusComponent* InStatusComponent)
 
 void USAPlayerWidget::RefreshStatus()
 {
+	if (IsValid(MatchClient) && MatchClient->HasMatchTime())
+	{
+		const int32 Seconds = FMath::CeilToInt(MatchClient->GetMatchRemainingSeconds());
+		SetTextIfChanged(MatchTimeText, FText::FromString(FString::Printf(TEXT("%02d:%02d"), Seconds / 60, Seconds % 60)));
+	}
+	else SetTextIfChanged(MatchTimeText, FText::FromString(TEXT("--:--")));
 	const USAStatusComponent* Status = IsValid(StatusComponent) ? StatusComponent.Get() : nullptr;
 	float Attack = Status ? Status->DefaultDamage : 0.0f;
 	if (Status)
@@ -223,5 +238,11 @@ void USAPlayerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	// Status fields are also edited directly by weapons, networking and Blueprints.
+	RefreshStatus();
+}
+
+void USAPlayerWidget::SetMatchClient(USAUdpClientComponent* InMatchClient)
+{
+	MatchClient = InMatchClient;
 	RefreshStatus();
 }

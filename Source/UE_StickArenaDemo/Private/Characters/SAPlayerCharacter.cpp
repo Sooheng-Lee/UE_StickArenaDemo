@@ -12,6 +12,7 @@
 #include "SADebugHelper.h"
 #include "Widget/SAPlayerWidget.h"
 #include "GameFramework/PlayerController.h"
+#include "Items/SAWeaponActor.h"
 ASAPlayerCharacter::ASAPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -65,7 +66,29 @@ void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 void ASAPlayerCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	UpdateMovementState();
 	RotateToMouse(DeltaTime);
+}
+
+bool ASAPlayerCharacter::IsMovementBlocked() const
+{
+	return GetCharacterState() == ECharacterState::Dead || GetCharacterState() == ECharacterState::Damaged
+		|| (UdpClient && UdpClient->IsMatchExpired());
+}
+
+void ASAPlayerCharacter::UpdateMovementState()
+{
+	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+	const ASAWeaponActor* Weapon = GetWeapon();
+	MovementComponent->MaxWalkSpeed = GetCharacterState() == ECharacterState::Attack && IsValid(Weapon)
+		? FMath::Max(0.0f, Weapon->GetWalkSpeed()) : DefaultWalkSpeed;
+	if (IsMovementBlocked())
+	{
+		StopMovementInput(FInputActionValue());
+		ConsumeMovementInputVector();
+		MovementComponent->StopMovementImmediately();
+		MovementComponent->ClearAccumulatedForces();
+	}
 }
 
 FVector2D ASAPlayerCharacter::GetMoveVector() const
@@ -77,6 +100,7 @@ FVector2D ASAPlayerCharacter::GetMoveVector() const
 void ASAPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	DefaultWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	PC = Cast<APlayerController>(GetController());
 	if (PC) {
 		PC->bShowMouseCursor = true;
@@ -112,6 +136,7 @@ void ASAPlayerCharacter::RefreshPlayerWidget()
 		if (PlayerWidget)
 		{
 			PlayerWidget->SetStatusComponent(GetStatusComponent());
+			PlayerWidget->SetMatchClient(UdpClient);
 			PlayerWidget->AddToPlayerScreen();
 		}
 	}
@@ -129,6 +154,9 @@ void ASAPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
 {
+	UpdateMovementState();
+	if (IsMovementBlocked()) return;
+
 	const FVector InputVector = Value.Get<FVector>();
 	const FVector MoveDir = FVector(InputVector.X, InputVector.Y, 0).GetSafeNormal();
 	if (MoveDir.IsNearlyZero())
@@ -184,7 +212,7 @@ void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
 
 void ASAPlayerCharacter::RotateToMouse(float DeltaTime)
 {
-	if (GetCharacterState() == ECharacterState::Damaged) return;
+	if (IsMovementBlocked()) return;
 	if (!PC) return;
 	FHitResult HitResult;
 	const bool bHit = PC->GetHitResultUnderCursor(ECC_Visibility, false, HitResult);

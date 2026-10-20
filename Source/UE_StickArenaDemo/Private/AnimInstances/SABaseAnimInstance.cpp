@@ -47,7 +47,7 @@ void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 void USABaseAnimInstance::PlayDamageAnim(float Damage)
 {
 	CumulativeDamage += Damage;
-	const bool bStrongDamage = CumulativeDamage >= 15.0f;
+	const bool bStrongDamage = CumulativeDamage >= 30.0f;
 
 	if (DamagedMontage)
 	{
@@ -66,7 +66,7 @@ void USABaseAnimInstance::PlayDamageAnim(float Damage)
 void USABaseAnimInstance::PlayDeadAnim(float Damage)
 {
 	CumulativeDamage += Damage;
-	const bool bStrongDamage = CumulativeDamage >= 15.0f;
+	const bool bStrongDamage = CumulativeDamage >= 30.0f;
 
 	if (DeadMontage)
 	{

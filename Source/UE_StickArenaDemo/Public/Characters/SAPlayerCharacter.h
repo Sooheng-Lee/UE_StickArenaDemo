@@ -72,7 +72,10 @@ private:
 	FVector LastMovementInputDirection = FVector::ZeroVector;
 	float TurnBrakeReleaseSpeed = 0.0f;
 	bool bBrakingForTurn = false;
+	float DefaultWalkSpeed = 400.0f;
 private:
+	bool IsMovementBlocked() const;
+	void UpdateMovementState();
 	void RotateToMouse(float DeltaTime);
 	void RefreshPlayerWidget();
 };

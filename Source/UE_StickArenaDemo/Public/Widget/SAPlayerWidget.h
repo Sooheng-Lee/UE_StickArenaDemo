@@ -5,6 +5,7 @@
 #include "SAPlayerWidget.generated.h"
 
 class USAStatusComponent;
+class USAUdpClientComponent;
 class UTextBlock;
 class UProgressBar;
 class UImage;
@@ -25,6 +26,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="HUD")
 	void RefreshStatus();
 
+	UFUNCTION(BlueprintCallable, Category="HUD")
+	void SetMatchClient(USAUdpClientComponent* InMatchClient);
+
 protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
@@ -39,6 +43,10 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Transient, Category="HUD")
 	TObjectPtr<USAStatusComponent> StatusComponent;
+	UPROPERTY(Transient)
+	TObjectPtr<USAUdpClientComponent> MatchClient;
+	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional), Category="HUD")
+	TObjectPtr<UTextBlock> MatchTimeText;
 
 	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional), Category="HUD")
 	TObjectPtr<UTextBlock> AttackText;
