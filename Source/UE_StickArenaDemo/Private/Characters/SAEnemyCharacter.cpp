@@ -85,8 +85,8 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	NetworkState = State;
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
-	if (bFirstState || FVector::DistSquared(GetActorLocation(), State.Position) > FMath::Square(TeleportDistance))
-		SetActorLocationAndRotation(State.Position,
+	if (bFirstState || FVector::DistSquared(GetActorLocation() - KnockbackOffset, State.Position) > FMath::Square(TeleportDistance))
+		SetActorLocationAndRotation(State.Position + KnockbackOffset,
 			GetCharacterState() == ECharacterState::Damaged ? GetActorRotation() : State.Rotation,
 			false, nullptr, ETeleportType::TeleportPhysics);
 	GetCharacterMovement()->SetMovementMode(State.State == ESAPlayerActivity::Falling ? MOVE_Falling : MOVE_Walking);
@@ -139,19 +139,49 @@ void ASAEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void ASAEnemyCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
+{
+	// Proxies never tick CharacterMovement; integrate the local hit response separately.
+	KnockbackVelocity += FVector(VelocityChange.X, VelocityChange.Y, 0.0f);
+}
+
 void ASAEnemyCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (!bHasNetworkState) return;
+	const float Step = FMath::Max(DeltaSeconds, 0.0f);
+	const FVector PreviousOffset = KnockbackOffset;
+	const float Speed = KnockbackVelocity.Size();
+	if (Speed > UE_SMALL_NUMBER)
+	{
+		const float Deceleration = FMath::Max(KnockbackDeceleration, 1.0f);
+		const float MovingTime = FMath::Min(Step, Speed / Deceleration);
+		const FVector Direction = KnockbackVelocity / Speed;
+		KnockbackOffset += Direction * (Speed * MovingTime - 0.5f * Deceleration * MovingTime * MovingTime);
+		KnockbackVelocity = Direction * FMath::Max(0.0f, Speed - Deceleration * Step);
+	}
+	else if (GetCharacterState() != ECharacterState::Damaged && bHasNetworkState)
+	{
+		// Once recovered, blend back to the latest authoritative position.
+		KnockbackOffset *= FMath::Exp(-8.0f * Step);
+		if (KnockbackOffset.IsNearlyZero(0.1f)) KnockbackOffset = FVector::ZeroVector;
+	}
+	if (!bHasNetworkState)
+	{
+		// Placed test enemies have no server position to drive their movement.
+		AddActorWorldOffset(KnockbackOffset - PreviousOffset, true);
+		return;
+	}
 	const double Age = FMath::Clamp(FPlatformTime::Seconds() - LastStateTime, 0.0, static_cast<double>(MaxExtrapolationTime));
 	const FVector Target = NetworkState.Position + NetworkState.Velocity * Age;
 	const float Alpha = NetworkInterpSpeed > 0.0f ? 1.0f - FMath::Exp(-NetworkInterpSpeed * FMath::Max(DeltaSeconds, 0.0f)) : 1.0f;
 	const FQuat Rotation = GetCharacterState() == ECharacterState::Damaged
 		? GetActorQuat() : FQuat::Slerp(GetActorQuat(), NetworkState.Rotation.Quaternion(), Alpha);
-	SetActorLocationAndRotation(FMath::Lerp(GetActorLocation(), Target, Alpha), Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+	const FVector BasePosition = GetActorLocation() - PreviousOffset;
+	SetActorLocationAndRotation(FMath::Lerp(BasePosition, Target, Alpha) + KnockbackOffset,
+		Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 }
 
 FVector ASAEnemyCharacter::GetVelocity() const
 {
-	return bHasNetworkState ? NetworkState.Velocity : FVector::ZeroVector;
+	return (bHasNetworkState ? NetworkState.Velocity : FVector::ZeroVector) + KnockbackVelocity;
 }

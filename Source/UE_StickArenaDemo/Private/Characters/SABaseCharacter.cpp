@@ -6,6 +6,7 @@
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "TimerManager.h"
 #include "Items/SACRWeapon.h"
+#include "GameFramework/CharacterMovementComponent.h"
 // Sets default values
 ASABaseCharacter::ASABaseCharacter()
 {
@@ -51,6 +52,23 @@ void ASABaseCharacter::Attack()
 	}
 }
 
+void ASABaseCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
+{
+	GetCharacterMovement()->AddImpulse(VelocityChange, true);
+}
+
+void ASABaseCharacter::RestoreFromDamaged()
+{
+	if (StatusComponent->HP > 0)
+	{
+		SetCharacterState(ECharacterState::Idle);
+	}
+	else
+	{
+		SetCharacterState(ECharacterState::Dead);
+	}
+}
+
 FVector2D ASABaseCharacter::GetMoveVector() const
 {
 	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
@@ -60,35 +78,40 @@ FVector2D ASABaseCharacter::GetMoveVector() const
 void ASABaseCharacter::GetDamage(AActor* Attacker)
 {
 	if (CharacterState == ECharacterState::Dead) return;
-	if (IsValid(Attacker) && Attacker != this)
-	{
-		if (const ASABaseCharacter* AttackingCharacter = Cast<ASABaseCharacter>(Attacker))
-		{
-			float TotalDamage = 0.0f;
-			if (const USAStatusComponent* AttackerStatus = AttackingCharacter->GetStatusComponent())
-			{
-				TotalDamage += AttackerStatus->DefaultDamage;
-			}
-			if (const ASAWeaponActor* AttackerWeapon = AttackingCharacter->GetWeapon(); IsValid(AttackerWeapon))
-			{
-				TotalDamage += AttackerWeapon->GetDamage();
-			}
-			if (StatusComponent)
-			{
-				const float AppliedDamage = FMath::Max(1.0f, TotalDamage - FMath::Max(0.0f, StatusComponent->Defense));
-				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
-			}
-		}
+	if (!IsValid(Attacker) || Attacker == this) return;
 
-		const FVector Direction = (Attacker->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
-		if (!Direction.IsNearlyZero())
+	// Face the attacker before PlayDamageAnim applies its backward impulse.
+	const FVector Direction = (Attacker->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	if (!Direction.IsNearlyZero())
+	{
+		FRotator FacingRotation = GetActorRotation();
+		FacingRotation.Yaw = Direction.Rotation().Yaw;
+		SetActorRotation(FacingRotation);
+	}
+	if (const ASABaseCharacter* AttackingCharacter = Cast<ASABaseCharacter>(Attacker))
+	{
+		float TotalDamage = 0.0f;
+		if (const USAStatusComponent* AttackerStatus = AttackingCharacter->GetStatusComponent())
 		{
-			FRotator FacingRotation = GetActorRotation();
-			FacingRotation.Yaw = Direction.Rotation().Yaw;
-			SetActorRotation(FacingRotation);
+			TotalDamage += AttackerStatus->DefaultDamage;
+		}
+		if (const ASAWeaponActor* AttackerWeapon = AttackingCharacter->GetWeapon(); IsValid(AttackerWeapon))
+		{
+			TotalDamage += AttackerWeapon->GetDamage();
+		}
+		if (StatusComponent)
+		{
+			const float AppliedDamage = FMath::Max(1.0f, TotalDamage - FMath::Max(0.0f, StatusComponent->Defense));
+			StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
+			SetCharacterState(ECharacterState::Damaged);
+			AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
+			if (IsValid(AnimInstance))
+			{
+				AnimInstance->PlayDamageAnim(AppliedDamage);
+			}
 		}
 	}
-	SetCharacterState(ECharacterState::Damaged);
+
 	if (ASACRWeapon* Weapon = Cast<ASACRWeapon>(GetWeapon()))
 	{
 		Weapon->DeactivateHitCollision();

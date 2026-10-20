@@ -18,6 +18,7 @@ public:
 	void ApplyNetworkState(const FSAPlayerNetworkState& State);
 	virtual void Tick(float DeltaSeconds) override;
 	virtual FVector GetVelocity() const override;
+	virtual void ApplyDamageKnockback(const FVector& VelocityChange) override;
 	virtual bool IsNetworkProxy() const override { return true; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Remote Player")
@@ -35,10 +36,14 @@ protected:
 	float TeleportDistance = 600.0f;
 	UPROPERTY(EditDefaultsOnly, Category="Remote Player", meta=(ClampMin="0.0", ClampMax="0.25"))
 	float MaxExtrapolationTime = 0.1f;
+	UPROPERTY(EditDefaultsOnly, Category="Combat|Knockback", meta=(ClampMin="1.0"))
+	float KnockbackDeceleration = 1400.0f;
 
 private:
 	void ApplyWeaponState(const FSAPlayerNetworkState& State);
 	bool bHasNetworkState = false;
 	bool bAppearanceInitialized = false;
 	double LastStateTime = 0.0;
+	FVector KnockbackVelocity = FVector::ZeroVector;
+	FVector KnockbackOffset = FVector::ZeroVector;
 };

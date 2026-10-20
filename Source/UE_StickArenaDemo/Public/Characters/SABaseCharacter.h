@@ -21,6 +21,8 @@ public:
 	USAStatusComponent* GetStatusComponent() const { return StatusComponent; }
 	virtual FVector2D GetMoveVector() const;
 	virtual bool IsNetworkProxy() const { return false; }
+	virtual void ApplyDamageKnockback(const FVector& VelocityChange);
+	void RestoreFromDamaged();
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	virtual void GetDamage(AActor* Attacker = nullptr);
 	UFUNCTION(BlueprintCallable)

@@ -16,7 +16,8 @@ public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	void PlayAttackMontage(EWeaponType WeaponType);
-
+	void PlayDamageAnim(float Damage);
+	
 protected:
 	UFUNCTION()
 	void OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload);
@@ -26,6 +27,7 @@ protected:
 private:
 	void PlayPunch();
 	void PlaySword();
+	void InitCumulativeDamage();
 
 protected:
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly)
@@ -39,8 +41,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	UAnimMontage* SwordMontage;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
+	UAnimMontage* DamagedMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	TArray<FName> AttackNames;
 	UINT AttackCount;
 	UINT MaxAttackCount;
 	bool bAttacking = false;
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Animation Source")
+	float CumulativeDamage = 0.0f;
+	// Horizontal velocity change in cm/s, applied through CharacterMovement.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Combat|Knockback", meta=(ClampMin="0.0"))
+	float WeakKnockbackStrength = 250.0f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Combat|Knockback", meta=(ClampMin="0.0"))
+	float StrongKnockbackStrength = 500.0f;
 };

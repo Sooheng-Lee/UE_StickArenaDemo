@@ -44,6 +44,25 @@ void USABaseAnimInstance::PlayAttackMontage(EWeaponType WeaponType)
 	}	
 }
 
+void USABaseAnimInstance::PlayDamageAnim(float Damage)
+{
+	CumulativeDamage += Damage;
+	const bool bStrongDamage = CumulativeDamage >= 15.0f;
+
+	if (DamagedMontage)
+	{
+		Montage_Play(DamagedMontage);
+		Montage_JumpToSection(bStrongDamage ? FName("StrongDamage") : FName("WeakDamage"), DamagedMontage);
+	}
+
+	if (IsValid(OwningCharacter))
+	{
+		const FVector Backward = -OwningCharacter->GetActorForwardVector().GetSafeNormal2D();
+		const float KnockbackStrength = bStrongDamage ? StrongKnockbackStrength : WeakKnockbackStrength;
+		OwningCharacter->ApplyDamageKnockback(Backward * KnockbackStrength);
+	}
+}
+
 void USABaseAnimInstance::PlayPunch()
 {
 	if (Montage_IsPlaying(PunchMontage))
@@ -76,6 +95,12 @@ void USABaseAnimInstance::PlaySword()
 	}
 }
 
+void USABaseAnimInstance::InitCumulativeDamage()
+{
+	CumulativeDamage = 0;
+	OwningCharacter->RestoreFromDamaged();
+}
+
 void USABaseAnimInstance::OnNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& Payload)
 {
 	if(NotifyName == TEXT("AttackEnabled"))
@@ -93,6 +118,11 @@ void USABaseAnimInstance::OnNotifyBegin(FName NotifyName, const FBranchingPointN
 		if (!Weapon) return;
 		Weapon->ActivateHitCollision();
 	}
+	else if (NotifyName == TEXT("InitCumulativeDamage"))
+	{
+		if (!IsValid(OwningCharacter)) return;
+		InitCumulativeDamage();
+	}
 }
 
 void USABaseAnimInstance::SetAttackEnabled()
@@ -104,10 +134,7 @@ void USABaseAnimInstance::SetAttackEnabled()
 			Weapon->DeactivateHitCollision();
 		}
 	}
-	if (IsValid(OwningCharacter) && OwningCharacter->GetCharacterState() == ECharacterState::Attack)
-	{
-		OwningCharacter->SetCharacterState(ECharacterState::Idle);
-	}
+	OwningCharacter->SetCharacterState(ECharacterState::Idle);
 }
 
 void USABaseAnimInstance::DetectPunchAttack()

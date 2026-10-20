@@ -140,6 +140,66 @@ bool FSAEnemyCharacterTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSADamageKnockbackTest, "StickArena.Combat.DamageKnockback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSADamageKnockbackTest::RunTest(const FString& Parameters)
+{
+	FSAReplicationTestWorld TestWorld;
+	const auto SpawnEnemy = [&]()
+	{
+		ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>();
+		Enemy->InitializeRemotePlayer(TestRegistration());
+		Enemy->SetActorRotation(FRotator::ZeroRotator);
+		Enemy->SetCharacterState(ECharacterState::Damaged);
+		return Enemy;
+	};
+	ASAEnemyCharacter* Weak = SpawnEnemy();
+	ASAEnemyCharacter* Strong = SpawnEnemy();
+	USABaseAnimInstance* WeakAnim = Cast<USABaseAnimInstance>(Weak->GetMesh()->GetAnimInstance());
+	USABaseAnimInstance* StrongAnim = Cast<USABaseAnimInstance>(Strong->GetMesh()->GetAnimInstance());
+	if (!TestNotNull(TEXT("Weak animation instance"), WeakAnim)
+		|| !TestNotNull(TEXT("Strong animation instance"), StrongAnim)) return false;
+	WeakAnim->PlayDamageAnim(14.0f);
+	StrongAnim->PlayDamageAnim(15.0f);
+	TestTrue(TEXT("Below 15 applies weak backward velocity"), Weak->GetVelocity().Equals(FVector(-250, 0, 0)));
+	TestTrue(TEXT("Exactly 15 applies strong backward velocity"), Strong->GetVelocity().Equals(FVector(-850, 0, 0)));
+	const FVector WeakStart = Weak->GetActorLocation();
+	const FVector StrongStart = Strong->GetActorLocation();
+	for (int32 Frame = 0; Frame < 60; ++Frame)
+	{
+		Weak->Tick(1.0f / 60.0f);
+		Strong->Tick(1.0f / 60.0f);
+	}
+	const float WeakDistance = WeakStart.X - Weak->GetActorLocation().X;
+	const float StrongDistance = StrongStart.X - Strong->GetActorLocation().X;
+	TestTrue(TEXT("Placed enemy actually moves backward"), WeakDistance > 20.0f);
+	TestTrue(TEXT("Strong hit travels substantially farther"), StrongDistance > WeakDistance * 5.0f);
+	TestTrue(TEXT("Friction stops knockback"), Strong->GetVelocity().IsNearlyZero());
+	WeakAnim->PlayDamageAnim(1.0f);
+	TestTrue(TEXT("Accumulated 14 + 1 selects strong response"), Weak->GetVelocity().Equals(FVector(-850, 0, 0)));
+
+	ASAEnemyCharacter* Remote = SpawnEnemy();
+	FSAPlayerNetworkState State;
+	State.PlayerId = TestRegistration().PlayerId;
+	State.Position = FVector(1000, 0, 100);
+	State.Sequence = 1;
+	Remote->ApplyNetworkState(State);
+	CastChecked<USABaseAnimInstance>(Remote->GetMesh()->GetAnimInstance())->PlayDamageAnim(15.0f);
+	for (int32 Frame = 0; Frame < 60; ++Frame)
+	{
+		++State.Sequence;
+		Remote->ApplyNetworkState(State);
+		Remote->Tick(1.0f / 60.0f);
+	}
+	TestTrue(TEXT("Repeated snapshots preserve local knockback"), State.Position.X - Remote->GetActorLocation().X > 250.0f);
+	TestFalse(TEXT("Network movement simulation stays disabled"), Remote->GetCharacterMovement()->IsComponentTickEnabled());
+	Remote->SetCharacterState(ECharacterState::Idle);
+	for (int32 Frame = 0; Frame < 120; ++Frame) Remote->Tick(1.0f / 60.0f);
+	TestTrue(TEXT("Recovered proxy smoothly returns to server position"), Remote->GetActorLocation().Equals(State.Position, 0.2f));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAEnemyUdpReceiveTest, "StickArena.Networking.UdpSpawnsEnemy",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
