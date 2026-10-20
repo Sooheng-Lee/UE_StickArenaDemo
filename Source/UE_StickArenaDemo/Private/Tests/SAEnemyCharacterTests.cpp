@@ -405,13 +405,13 @@ bool FSATreasurePickupIntegrationTest::RunTest(const FString& Parameters)
 	}, 8.0))) return false;
 	const FVector Position = ClientA->TreasureActors.FindRef(Id)->GetActorLocation();
 	PlayerA->SetActorLocation(Position + FVector(250,0,88));
-	for (int32 Hit = 1; Hit <= 3; ++Hit)
+	for (int32 Hit = 1; Hit <= 5; ++Hit)
 	{
 		ClientA->SendAction(TEXT("STATE"));
 		ClientA->SendTreasureHit(Id);
 		if (!TestTrue(TEXT("Shared box hit reaches both clients"), PumpUntil([&]
 		{ return ClientA->TreasureHits.FindRef(Id) == Hit && ClientB->TreasureHits.FindRef(Id) == Hit; }))) return false;
-		if (Hit < 3) FPlatformProcess::Sleep(0.22f);
+		if (Hit < 5) FPlatformProcess::Sleep(0.22f);
 	}
 	ASAWeaponActor* GroundA = Cast<ASAWeaponActor>(ClientA->TreasureActors.FindRef(Id));
 	ASAWeaponActor* GroundB = Cast<ASAWeaponActor>(ClientB->TreasureActors.FindRef(Id));
@@ -427,7 +427,7 @@ bool FSATreasurePickupIntegrationTest::RunTest(const FString& Parameters)
 	}))) return false;
 	TestTrue(TEXT("B's actual ground actor was destroyed"), GroundB->IsActorBeingDestroyed());
 	TestTrue(TEXT("Equipped winner is preserved"), IsValid(GroundA) && GroundA->GetAttachParentActor() == PlayerA);
-	const FString StaleDrop = FString::Printf(TEXT("SA4|type=TREASURE_STATE|epoch=%s|id=%s|item=0|hits=3|pos=%.6f,%.6f,%.6f"),
+	const FString StaleDrop = FString::Printf(TEXT("SA4|type=TREASURE_STATE|epoch=%s|id=%s|item=0|hits=5|pos=%.6f,%.6f,%.6f"),
 		*ClientA->TreasureEpoch, *Id, Position.X, Position.Y, Position.Z);
 	ClientB->ReceiveTreasure(StaleDrop);
 	TestFalse(TEXT("Out-of-order drop cannot return on B"), ClientB->TreasureActors.Contains(Id));

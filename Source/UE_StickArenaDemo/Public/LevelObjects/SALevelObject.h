@@ -17,6 +17,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Level Object")
 	virtual void PlayHitEffect();
+	virtual void RequestHit(AActor* Attacker);
 
 	UStaticMeshComponent* GetObjectMesh() const { return ObjectMesh; }
 

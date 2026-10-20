@@ -31,35 +31,38 @@ bool FSATreasureNetworkTest::RunTest(const FString& Parameters)
         TestEqual(TEXT("Two hits preserve the box"), Box->HitCount, 2);
         Client->ReceiveTreasure(State(1));
         TestEqual(TEXT("Out-of-order hit state ignored"), Box->HitCount, 2);
-        Client->ReceiveTreasure(State(3));
+        Client->ReceiveTreasure(State(4));
+        TestTrue(TEXT("Four hits preserve the box"), Client->TreasureActors.FindRef(TEXT("1")) == Box);
+        TestEqual(TEXT("Four hits counted"), Box->HitCount, 4);
+        Client->ReceiveTreasure(State(5));
         AActor* Item = Client->TreasureActors.FindRef(TEXT("1"));
-        if (TestNotNull(TEXT("Third hit spawns sword blueprint"), Cast<ASAWeaponActor>(Item)))
+        if (TestNotNull(TEXT("Fifth hit spawns sword blueprint"), Cast<ASAWeaponActor>(Item)))
         {
             TestTrue(TEXT("Item at box position"), Item->GetActorLocation().Equals(FVector(100,200,30)));
             Client->ReceiveTreasure(State(0));
-            Client->ReceiveTreasure(State(3));
+            Client->ReceiveTreasure(State(5));
             TestTrue(TEXT("Repeated/reordered packets do not recreate box or item"), Client->TreasureActors.FindRef(TEXT("1")) == Item);
         }
         Client->ClearTreasure();
-        Client->ReceiveTreasure(State(3));
+        Client->ReceiveTreasure(State(5));
         TestNotNull(TEXT("Late join restores dropped sword without box"), Cast<ASAWeaponActor>(Client->TreasureActors.FindRef(TEXT("1"))));
 		AActor* GroundItem = Client->TreasureActors.FindRef(TEXT("1"));
-		const FString Collected = State(3) + TEXT("|owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+		const FString Collected = State(5) + TEXT("|owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		Client->ReceiveTreasure(Collected);
 		TestTrue(TEXT("Another player's pickup destroys ground item"), GroundItem->IsActorBeingDestroyed());
 		TestNull(TEXT("Collected item removed from ground registry"), Client->TreasureActors.FindRef(TEXT("1")));
-		Client->ReceiveTreasure(State(3));
+		Client->ReceiveTreasure(State(5));
 		TestNull(TEXT("Delayed drop snapshot cannot revive collected item"), Client->TreasureActors.FindRef(TEXT("1")));
 		Client->ClearTreasure();
 		Client->ReceiveTreasure(Collected);
-		Client->ReceiveTreasure(State(3));
+		Client->ReceiveTreasure(State(5));
 		TestNull(TEXT("Late join never creates collected ground item"), Client->TreasureActors.FindRef(TEXT("1")));
 
 		UClass* PlayerClass = LoadClass<ASABaseCharacter>(nullptr, TEXT("/Game/PlayerCharacters/TypeA/BP_TypeA.BP_TypeA_C"));
 		ASABaseCharacter* Player = World->SpawnActor<ASABaseCharacter>(PlayerClass, FVector(5000,0,100), FRotator::ZeroRotator);
 		USAUdpClientComponent* LocalClient = Player->FindComponentByClass<USAUdpClientComponent>();
 		LocalClient->SessionId = TEXT("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-		LocalClient->ReceiveTreasure(State(3));
+		LocalClient->ReceiveTreasure(State(5));
 		TestNull(TEXT("Network drop does not equip without grant"), Player->GetWeapon());
 		LocalClient->ReceiveTreasure(Collected);
 		ASAWeaponActor* Equipped = Player->GetWeapon();
@@ -81,10 +84,10 @@ bool FSATreasureNetworkTest::RunTest(const FString& Parameters)
 		ASAWeaponActor* LatestWeapon = Player->GetWeapon();
 		LocalClient->LastAppliedPickupSequence = 2;
 		LocalClient->RequestedPickupSequences.Add(TEXT("2"), 1);
-		LocalClient->ReceiveTreasure(TEXT("SA4|type=TREASURE_STATE|epoch=100|id=2|item=0|hits=3|pos=0,0,0|owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+		LocalClient->ReceiveTreasure(TEXT("SA4|type=TREASURE_STATE|epoch=100|id=2|item=0|hits=5|pos=0,0,0|owner=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 		TestTrue(TEXT("Delayed older grant cannot replace a newer weapon"), Player->GetWeapon() == LatestWeapon);
         Client->ReceiveTreasure(TEXT("SA4|type=TREASURE_STATE|epoch=101|id=1|item=0|hits=0|pos=0,0,0"));
-        Client->ReceiveTreasure(State(3));
+        Client->ReceiveTreasure(State(5));
         TestNotNull(TEXT("Server restart retires previous epoch"), Cast<ASATreasureBox>(Client->TreasureActors.FindRef(TEXT("1"))));
     }
     Client->ClearTreasure();

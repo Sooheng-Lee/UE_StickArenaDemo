@@ -22,6 +22,7 @@ public:
 	void SendAction(const TCHAR* Action, const FVector& Input = FVector::ZeroVector);
 	void SetMovementInput(const FVector& Input);
     void SendTreasureHit(const FString& Id);
+	void SendCrystalHit(const FString& Id);
 	void RequestTreasurePickup(ASAWeaponActor* Weapon);
 	UFUNCTION(BlueprintPure, Category="UDP")
 	ASAEnemyCharacter* GetRemoteCharacter(const FString& PlayerId) const;
@@ -48,6 +49,16 @@ protected:
 
 private:
 	bool EnsureSocket();
+	friend class FSACrystalTowerEffectTest;
+	void ReceiveCrystal(const FString& Packet);
+	FString CrystalEpoch;
+	TSet<FString> RetiredCrystalEpochs;
+	TMap<FString, int64> CrystalRevisions;
+	TMap<FString, int64> CrystalCycles;
+	TSet<FString> AppliedCrystalRewards;
+	struct FPendingCrystalHit { FString Packet; double Expires = 0; double NextSend = 0; };
+	TMap<FString, FPendingCrystalHit> PendingCrystalHits;
+	int64 CrystalHitSequence = 0;
     void SendLeave();
     FDelegateHandle PreExitHandle;
     bool bLeaving = false;

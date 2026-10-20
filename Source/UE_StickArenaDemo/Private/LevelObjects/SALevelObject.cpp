@@ -16,3 +16,8 @@ ASALevelObject::ASALevelObject()
 void ASALevelObject::PlayHitEffect()
 {
 }
+
+void ASALevelObject::RequestHit(AActor* Attacker)
+{
+	PlayHitEffect();
+}

@@ -1,9 +1,12 @@
 #include "LevelObjects/SACrystalTower.h"
+#include "Characters/SABaseCharacter.h"
+#include "Components/SAStatusComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Components/SAUdpClientComponent.h"
 #include "UObject/ConstructorHelpers.h"
 
 ASACrystalTower::ASACrystalTower()
@@ -31,8 +34,34 @@ ASACrystalTower::ASACrystalTower()
 void ASACrystalTower::BeginPlay()
 {
 	Super::BeginPlay();
+	RestRotation = ObjectMesh->GetRelativeRotation().Quaternion();
 	GlowMaterial = ObjectMesh->CreateDynamicMaterialInstance(0);
-	SetEffectStrength(0.0f);
+	SetEffectStrength(bLit ? 1.0f : 0.0f);
+}
+
+void ASACrystalTower::RequestHit(AActor* Attacker)
+{
+	ASABaseCharacter* Character = Cast<ASABaseCharacter>(Attacker);
+	if (!bLit || !IsValid(Character) || !Character->IsLocallyControlled()
+		|| Character->GetCharacterState() == ECharacterState::Dead) return;
+	if (USAUdpClientComponent* Client = Character->FindComponentByClass<USAUdpClientComponent>())
+		Client->SendCrystalHit(GetFName().ToString());
+}
+
+void ASACrystalTower::ApplyNetworkState(int32 Hits, bool bIsLit)
+{
+	const bool bWasLit = bLit;
+	const int32 PreviousHits = HitCount;
+	bLit = bIsLit;
+	HitCount = Hits;
+	if (!GlowMaterial) GlowMaterial = ObjectMesh->CreateDynamicMaterialInstance(0);
+	if (bWasLit && Hits > PreviousHits)
+	{
+		bLit = true;
+		PlayHitEffect();
+		bLit = bIsLit;
+	}
+	SetEffectStrength(bLit ? 1.0f : 0.0f);
 }
 
 void ASACrystalTower::PlayHitEffect()
@@ -43,8 +72,9 @@ void ASACrystalTower::PlayHitEffect()
 
 void ASACrystalTower::PlayEffect()
 {
-	// Each tower owns its material instance; hits cannot brighten other towers.
+	if (!bLit) return;
 	if (!GlowMaterial) GlowMaterial = ObjectMesh->CreateDynamicMaterialInstance(0);
+	if (!bPlaying) RestRotation = ObjectMesh->GetRelativeRotation().Quaternion();
 	Elapsed = 0.0f;
 	bPlaying = true;
 	SetEffectStrength(1.0f);
@@ -64,9 +94,14 @@ void ASACrystalTower::Tick(float DeltaSeconds)
 	if (!bPlaying) return;
 	Elapsed += FMath::Max(DeltaSeconds, 0.0f);
 	const float Alpha = FMath::Clamp(Elapsed / FMath::Max(EffectDuration, 0.1f), 0.0f, 1.0f);
-	SetEffectStrength(FMath::Square(1.0f - Alpha));
+	const float Wave = FMath::Sin(Alpha * 6.0f * PI);
+	ObjectMesh->SetRelativeRotation(RestRotation * FQuat(FVector::ForwardVector,
+		FMath::DegreesToRadians(ShakeAngleDegrees) * Wave * FMath::Square(1.0f - Alpha)));
+	SetEffectStrength(bLit ? (0.15f + 0.85f * FMath::Square(FMath::Cos(Alpha * 6.0f * PI))) : 0.0f);
 	if (Alpha >= 1.0f)
 	{
+		ObjectMesh->SetRelativeRotation(RestRotation);
+		SetEffectStrength(bLit ? 1.0f : 0.0f);
 		bPlaying = false;
 		SetActorTickEnabled(false);
 	}

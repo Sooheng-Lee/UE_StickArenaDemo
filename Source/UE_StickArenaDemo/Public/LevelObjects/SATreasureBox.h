@@ -14,7 +14,8 @@ public:
 	ASATreasureBox();
     void InitializeNetworkBox(const FString& Id, ESATreasureItem Item);
     void ApplyNetworkHits(int32 Hits);
-    void RequestHit(AActor* Attacker);
+    virtual void RequestHit(AActor* Attacker) override;
+    static constexpr int32 HitsToBreak = 5;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Treasure")
     ESATreasureItem SpawnItem = ESATreasureItem::Sword;
     UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Treasure")

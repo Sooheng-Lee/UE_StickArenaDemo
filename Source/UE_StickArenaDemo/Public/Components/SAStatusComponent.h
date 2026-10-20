@@ -4,6 +4,14 @@
 #include "Components/ActorComponent.h"
 #include "SAStatusComponent.generated.h"
 
+UENUM(BlueprintType)
+enum class ESACrystalBlessing : uint8
+{
+	Healing,
+	Attack,
+	Defense
+};
+
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class UE_STICKARENADEMO_API USAStatusComponent : public UActorComponent
 {
@@ -11,6 +19,10 @@ class UE_STICKARENADEMO_API USAStatusComponent : public UActorComponent
 
 public:
 	USAStatusComponent();
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+	UFUNCTION(BlueprintCallable, Category="Status|Crystal")
+	void ApplyCrystalBlessing(ESACrystalBlessing Blessing, float RemainingDuration = -1.0f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Combat", meta=(ClampMin="0.0"))
 	float DefaultDamage = 5.0f;
@@ -36,4 +48,12 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Status|Speed", meta=(ClampMin="0.0"))
 	float AttackSpeed = 400.0f;
+
+private:
+	struct FCrystalEffect
+	{
+		ESACrystalBlessing Type;
+		float Remaining;
+	};
+	TArray<FCrystalEffect> CrystalEffects;
 };

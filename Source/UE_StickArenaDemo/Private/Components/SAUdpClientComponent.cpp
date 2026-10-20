@@ -14,6 +14,8 @@
 #include <charconv>
 #include "Misc/CoreDelegates.h"
 #include "LevelObjects/SATreasureBox.h"
+#include "LevelObjects/SACrystalTower.h"
+#include "EngineUtils.h"
 #include "Items/SAWeaponActor.h"
 #include "Components/SAStatusComponent.h"
 #include "UObject/ConstructorHelpers.h"
@@ -332,6 +334,19 @@ void USAUdpClientComponent::ReceivePackets()
 		if (!bAscii) continue;
 		Buffer[Received] = 0;
 		const FString Packet = UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer));
+        if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_STATE|"))) { ReceiveCrystal(Packet); continue; }
+        if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_ACK|")))
+        {
+            TArray<FString> Fields;
+            Packet.ParseIntoArray(Fields, TEXT("|"), false);
+            if (Fields.Num() == 5 && Fields[2] == TEXT("epoch=") + CrystalEpoch && Fields[3].StartsWith(TEXT("id=")))
+            {
+                const FString Id = Fields[3].RightChop(3);
+                if (const auto* Hit = PendingCrystalHits.Find(Id))
+                    if (Hit->Packet.Contains(TEXT("|") + Fields[4] + TEXT("|"))) PendingCrystalHits.Remove(Id);
+            }
+            continue;
+        }
         if (Packet.StartsWith(TEXT("SA4|type=TREASURE_STATE|"))) { ReceiveTreasure(Packet); continue; }
         if (Packet.StartsWith(TEXT("SA4|type=HIT_ACK|")))
         {
@@ -411,6 +426,15 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	if (!EnsureSocket()) return;
 	ReceivePackets();
     const double TreasureNow = FPlatformTime::Seconds();
+    for (auto It = PendingCrystalHits.CreateIterator(); It; ++It)
+    {
+        if (TreasureNow > It.Value().Expires) { It.RemoveCurrent(); continue; }
+        if (TreasureNow >= It.Value().NextSend)
+        {
+            SendPacket(It.Value().Packet);
+            It.Value().NextSend = TreasureNow + 0.2;
+        }
+    }
     for (auto It = PendingTreasureHits.CreateIterator(); It; ++It)
     {
         if (TreasureNow > It.Value().Expires) { It.RemoveCurrent(); continue; }
@@ -548,11 +572,11 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
         return true;
     };
     if (!IsDigits(Fields[2]) || !IsDigits(Fields[3]) || Fields[4] != TEXT("0")
-        || (Fields[5] != TEXT("0") && Fields[5] != TEXT("1") && Fields[5] != TEXT("2") && Fields[5] != TEXT("3"))) return;
+        || Fields[5].Len() != 1 || Fields[5][0] < TCHAR('0') || Fields[5][0] > TCHAR('0' + ASATreasureBox::HitsToBreak)) return;
 	FString ItemOwner;
 	if (Fields.Num() == 8)
 	{
-		if (!Fields[7].RemoveFromStart(TEXT("owner="), ESearchCase::CaseSensitive) || Fields[7].Len() != 32 || Fields[5] != TEXT("3")) return;
+		if (!Fields[7].RemoveFromStart(TEXT("owner="), ESearchCase::CaseSensitive) || Fields[7].Len() != 32 || Fields[5] != FString::FromInt(ASATreasureBox::HitsToBreak)) return;
 		for (TCHAR Digit : Fields[7]) if (!FChar::IsHexDigit(Digit)) return;
 		ItemOwner = Fields[7];
 	}
@@ -623,7 +647,7 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
     if (ASATreasureBox* Box = Cast<ASATreasureBox>(Existing))
     {
         Box->ApplyNetworkHits(Hits);
-        if (Hits < 3) { TreasureHits.Add(Id, Hits); return; }
+        if (Hits < ASATreasureBox::HitsToBreak) { TreasureHits.Add(Id, Hits); return; }
         Position = Box->GetActorLocation();
         Box->Destroy();
         TreasureActors.Remove(Id);
@@ -638,7 +662,7 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
     FActorSpawnParameters Params;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
     AActor* Spawned = nullptr;
-    if (Hits < 3)
+    if (Hits < ASATreasureBox::HitsToBreak)
     {
         ASATreasureBox* Box = GetWorld()->SpawnActor<ASATreasureBox>(ASATreasureBox::StaticClass(), Position, FRotator::ZeroRotator, Params);
         if (Box) { Box->InitializeNetworkBox(Id, ESATreasureItem::Sword); Box->ApplyNetworkHits(Hits); }
@@ -659,4 +683,87 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
 		Spawned = Weapon;
     }
     if (Spawned) { TreasureActors.Add(Id, Spawned); TreasureHits.Add(Id, Hits); }
+}
+void USAUdpClientComponent::SendCrystalHit(const FString& Id)
+{
+	const int64* Cycle = CrystalCycles.Find(Id);
+	if (!Cycle || CrystalEpoch.IsEmpty() || !bRegistrationAcknowledged || PendingCrystalHits.Contains(Id) || !EnsureSocket()) return;
+	FPendingCrystalHit Hit;
+	Hit.Packet = FString::Printf(TEXT("SA5|type=CRYSTAL_HIT|epoch=%s|session=%s|id=%s|seq=%lld|cycle=%lld"),
+		*CrystalEpoch, *SessionId, *Id, ++CrystalHitSequence, *Cycle);
+	Hit.Expires = FPlatformTime::Seconds() + 2.0;
+	Hit.NextSend = FPlatformTime::Seconds() + 0.2;
+	SendAction(TEXT("STATE"), MovementInput);
+	SendPacket(Hit.Packet);
+	PendingCrystalHits.Add(Id, Hit);
+}
+
+void USAUdpClientComponent::ReceiveCrystal(const FString& Packet)
+{
+	TArray<FString> Fields;
+	Packet.ParseIntoArray(Fields, TEXT("|"), false);
+	if (Fields.Num() != 11 || Fields[0] != TEXT("SA5") || Fields[1] != TEXT("type=CRYSTAL_STATE")) return;
+	const TCHAR* Keys[] = {TEXT("epoch="), TEXT("id="), TEXT("rev="), TEXT("cycle="), TEXT("hits="),
+		TEXT("lit="), TEXT("winner="), TEXT("effect="), TEXT("remaining=")};
+	for (int32 Index = 0; Index < 9; ++Index)
+		if (!Fields[Index + 2].RemoveFromStart(Keys[Index], ESearchCase::CaseSensitive)) return;
+	const auto ParseNumber = [](const FString& Text, int64& Number)
+	{
+		const FTCHARToUTF8 Utf8(*Text);
+		const auto Result = std::from_chars(Utf8.Get(), Utf8.Get() + Utf8.Length(), Number);
+		return Result.ec == std::errc{} && Result.ptr == Utf8.Get() + Utf8.Length() && Number >= 0;
+	};
+	int64 EpochNumber = 0, Revision = 0, Cycle = 0, Hits = 0, Lit = 0, Effect = 0;
+	if (!ParseNumber(Fields[2], EpochNumber) || Fields[3].IsEmpty() || !ParseNumber(Fields[4], Revision)
+		|| !ParseNumber(Fields[5], Cycle) || !ParseNumber(Fields[6], Hits) || Hits > 5
+		|| !ParseNumber(Fields[7], Lit) || Lit > 1 || !ParseNumber(Fields[9], Effect) || Effect > 2
+		|| (Lit == 1 && Hits >= 5) || (Lit == 0 && Hits != 5)) return;
+	float Remaining = 0.0f;
+	const FTCHARToUTF8 RemainingText(*Fields[10]);
+	const auto Parsed = std::from_chars(RemainingText.Get(), RemainingText.Get() + RemainingText.Length(), Remaining);
+	if (Parsed.ec != std::errc{} || Parsed.ptr != RemainingText.Get() + RemainingText.Length()
+		|| !FMath::IsFinite(Remaining) || Remaining < 0.0f || Remaining > (Effect == 0 ? 5.0f : 20.0f)) return;
+	if (!Fields[8].IsEmpty())
+	{
+		if (Fields[8].Len() != 32) return;
+		for (TCHAR Digit : Fields[8]) if (!FChar::IsHexDigit(Digit)) return;
+	}
+	if (CrystalEpoch != Fields[2])
+	{
+		if (RetiredCrystalEpochs.Contains(Fields[2])) return;
+		if (!CrystalEpoch.IsEmpty()) RetiredCrystalEpochs.Add(CrystalEpoch);
+		CrystalEpoch = Fields[2];
+		CrystalRevisions.Reset();
+		CrystalCycles.Reset();
+		PendingCrystalHits.Reset();
+		AppliedCrystalRewards.Reset();
+		for (TActorIterator<ASACrystalTower> Tower(GetWorld()); Tower; ++Tower) Tower->ApplyNetworkState(0, false);
+	}
+	const FString& Id = Fields[3];
+	const int64* Previous = CrystalRevisions.Find(Id);
+	if (Previous && Revision < *Previous) return;
+	if (!Previous || Revision > *Previous)
+	{
+		bool bFound = false;
+		for (TActorIterator<ASACrystalTower> Tower(GetWorld()); Tower; ++Tower)
+		{
+			if (Tower->GetFName().ToString() != Id) continue;
+			Tower->ApplyNetworkState(static_cast<int32>(Hits), Lit == 1);
+			bFound = true;
+			break;
+		}
+		if (!bFound) return; // Retry on a later snapshot if the map is still loading.
+		CrystalRevisions.Add(Id, Revision);
+		CrystalCycles.Add(Id, Cycle);
+	}
+	const FString RewardId = FString::Printf(TEXT("%s:%lld"), *Id, Cycle);
+	if (Lit == 0 && Remaining > 0.0f && !Fields[8].IsEmpty() && !AppliedCrystalRewards.Contains(RewardId))
+	{
+		ASABaseCharacter* Winner = Fields[8] == SessionId ? Cast<ASABaseCharacter>(GetOwner()) : GetRemoteCharacter(Fields[8]);
+		if (IsValid(Winner) && Winner->GetStatusComponent())
+		{
+			Winner->GetStatusComponent()->ApplyCrystalBlessing(static_cast<ESACrystalBlessing>(Effect), Remaining);
+			AppliedCrystalRewards.Add(RewardId);
+		}
+	}
 }

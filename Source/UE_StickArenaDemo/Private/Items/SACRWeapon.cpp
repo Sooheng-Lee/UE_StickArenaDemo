@@ -47,7 +47,6 @@ void ASACRWeapon::OnHitBeginOverlap(UPrimitiveComponent* OverlappedComponent, AA
 	else if (ASALevelObject* LevelObject = Cast<ASALevelObject>(OtherActor))
 	{
 		HitActors.Add(TWeakObjectPtr<AActor>(OtherActor));
-		if (ASATreasureBox* Box = Cast<ASATreasureBox>(LevelObject)) Box->RequestHit(Attacker);
-		else LevelObject->PlayHitEffect();
+		LevelObject->RequestHit(Attacker);
 	}
 }

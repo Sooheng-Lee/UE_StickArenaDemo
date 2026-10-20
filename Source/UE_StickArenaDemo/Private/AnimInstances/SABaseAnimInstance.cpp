@@ -200,8 +200,7 @@ void USABaseAnimInstance::DetectPunchAttack()
 			if (!HitObjects.Contains(LevelObject))
 			{
 				HitObjects.Add(LevelObject);
-				if (ASATreasureBox* Box = Cast<ASATreasureBox>(LevelObject)) Box->RequestHit(OwningCharacter);
-                else LevelObject->PlayHitEffect();
+				LevelObject->RequestHit(OwningCharacter);
 			}
 		}
 		const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *GetNameSafe(HitResult.GetActor()));
