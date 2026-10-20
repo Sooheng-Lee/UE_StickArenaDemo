@@ -63,6 +63,22 @@ void USABaseAnimInstance::PlayDamageAnim(float Damage)
 	}
 }
 
+void USABaseAnimInstance::PlayDeadAnim(float Damage)
+{
+	CumulativeDamage += Damage;
+	const bool bStrongDamage = CumulativeDamage >= 15.0f;
+
+	if (DeadMontage)
+	{
+		Montage_Play(DeadMontage);
+		Montage_JumpToSection(bStrongDamage ? FName("StrongDead") : FName("WeakDead"), DeadMontage);
+	}
+
+	const FVector Backward = -OwningCharacter->GetActorForwardVector().GetSafeNormal2D();
+	const float KnockbackStrength = bStrongDamage ? StrongKnockbackStrength : WeakKnockbackStrength;
+	OwningCharacter->ApplyDamageKnockback(Backward * KnockbackStrength);
+}
+
 void USABaseAnimInstance::PlayPunch()
 {
 	if (Montage_IsPlaying(PunchMontage))

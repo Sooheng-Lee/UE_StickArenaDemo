@@ -61,14 +61,7 @@ void ASABaseCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
 
 void ASABaseCharacter::RestoreFromDamaged()
 {
-	if (StatusComponent->HP > 0)
-	{
-		SetCharacterState(ECharacterState::Idle);
-	}
-	else
-	{
-		SetCharacterState(ECharacterState::Dead);
-	}
+	SetCharacterState(ECharacterState::Idle);
 }
 
 void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffect, FVector ImpactPoint)
@@ -104,12 +97,20 @@ void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffec
 				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DamagedEffect, ImpactPoint, FRotator::ZeroRotator, FVector(0.1f), true, true);
 			}
 			StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
-			SetCharacterState(ECharacterState::Damaged);
-			AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
-			if (IsValid(AnimInstance))
-			{
+			if (StatusComponent->HP > 0) {
+				SetCharacterState(ECharacterState::Damaged);
+				AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
+				if (!IsValid(AnimInstance)) return;
 				AnimInstance->PlayDamageAnim(AppliedDamage);
 			}
+			else
+			{
+				SetCharacterState(ECharacterState::Dead);
+				AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
+				if (!IsValid(AnimInstance)) return;
+				AnimInstance->PlayDeadAnim(AppliedDamage);
+			}
+		
 		}
 	}
 

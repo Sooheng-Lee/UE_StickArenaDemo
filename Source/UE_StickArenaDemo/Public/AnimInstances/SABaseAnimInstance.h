@@ -17,6 +17,7 @@ public:
 	virtual void NativeThreadSafeUpdateAnimation(float DeltaSeconds) override;
 	void PlayAttackMontage(EWeaponType WeaponType);
 	void PlayDamageAnim(float Damage);
+	void PlayDeadAnim(float Damage);
 	
 protected:
 	UFUNCTION()
@@ -42,6 +43,8 @@ protected:
 	UAnimMontage* SwordMontage;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	UAnimMontage* DamagedMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
+	UAnimMontage* DeadMontage;
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="AnimMontage")
 	TArray<FName> AttackNames;
 	UINT AttackCount;
