@@ -1,0 +1,11 @@
+{
+  "generator": "Built-in image_gen tool",
+  "file": "Content/Effects/Textures/T_PunchImpact_Burst.png",
+  "size": [
+    256,
+    256
+  ],
+  "transparent_background": true,
+  "prompt": "Use case: stylized-concept\nAsset type: a single game VFX sprite texture for an Unreal Engine fist-hit impact, square 1024x1024 RGBA.\nPrimary request: A crisp stylized punch contact burst: compact brilliant white core, irregular sharp tapered radial impact streaks, a few tiny detached shards. Energetic readable silhouette for a fast melee hit. Grayscale white and light gray only, so the game material can tint it.\nComposition: one centered front-facing flat 2D impact sprite; fills about 75 percent of canvas, ample transparent padding on all edges; slight natural asymmetry; no perspective, no scene.\nBackground: actual transparent alpha, including between all streaks; softly antialiased edges and a very restrained translucent inner glow.\nConstraints: standalone production texture, no fist or character, no text, no frame, no ground, no black background, no checkerboard drawn into pixels, no circular border, no collage, no sprite sheet, no watermark.",
+  "unreal_asset": "/Game/Effects/Textures/T_PunchImpact_Burst"
+}

@@ -5,7 +5,7 @@
 #include "SACRWeapon.generated.h"
 
 class UBoxComponent;
-
+class UNiagaraSystem;
 UCLASS()
 class UE_STICKARENADEMO_API ASACRWeapon : public ASAWeaponActor
 {
@@ -23,7 +23,8 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Weapon Components", meta=(AllowPrivateAccess="true"))
 	UBoxComponent* HitComponent;
-	
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Weapon Effect", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UNiagaraSystem> HitEffect;
 public:
 	void ActivateHitCollision();
 	void DeactivateHitCollision();

@@ -176,7 +176,7 @@ void USABaseAnimInstance::DetectPunchAttack()
 			{
 				HitCharacters.Add(HitCharacter);
 				SADebugHelper::Print(TEXT("HelloWorld"));
-				HitCharacter->GetDamage(OwningCharacter);
+				HitCharacter->TakeDamage(OwningCharacter, OwningCharacter->GetHitEffect(), HitResult.ImpactPoint);
 			}
 		}
 		else if (ASALevelObject* LevelObject = Cast<ASALevelObject>(HitResult.GetActor()))

@@ -6,6 +6,8 @@
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "TimerManager.h"
 #include "Items/SACRWeapon.h"
+#include "NiagaraSystem.h"
+#include "NiagaraFunctionLibrary.h"
 #include "GameFramework/CharacterMovementComponent.h"
 // Sets default values
 ASABaseCharacter::ASABaseCharacter()
@@ -69,13 +71,7 @@ void ASABaseCharacter::RestoreFromDamaged()
 	}
 }
 
-FVector2D ASABaseCharacter::GetMoveVector() const
-{
-	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
-	return FVector2D(LocalVelocity.Y, LocalVelocity.X);
-}
-
-void ASABaseCharacter::GetDamage(AActor* Attacker)
+void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffect, FVector ImpactPoint)
 {
 	if (CharacterState == ECharacterState::Dead) return;
 	if (!IsValid(Attacker) || Attacker == this) return;
@@ -88,6 +84,7 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 		FacingRotation.Yaw = Direction.Rotation().Yaw;
 		SetActorRotation(FacingRotation);
 	}
+
 	if (const ASABaseCharacter* AttackingCharacter = Cast<ASABaseCharacter>(Attacker))
 	{
 		float TotalDamage = 0.0f;
@@ -102,6 +99,10 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 		if (StatusComponent)
 		{
 			const float AppliedDamage = FMath::Max(1.0f, TotalDamage - FMath::Max(0.0f, StatusComponent->Defense));
+			if (DamagedEffect)
+			{
+				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DamagedEffect, ImpactPoint, FRotator::ZeroRotator, FVector(0.1f), true, true);
+			}
 			StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
 			SetCharacterState(ECharacterState::Damaged);
 			AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
@@ -118,6 +119,12 @@ void ASABaseCharacter::GetDamage(AActor* Attacker)
 	}
 	GetWorldTimerManager().SetTimer(DamageRecoveryTimerHandle, this,
 		&ASABaseCharacter::FinishDamageRecovery, 0.85f, false);
+}
+
+FVector2D ASABaseCharacter::GetMoveVector() const
+{
+	const FVector LocalVelocity = GetActorRotation().UnrotateVector(GetVelocity());
+	return FVector2D(LocalVelocity.Y, LocalVelocity.X);
 }
 
 void ASABaseCharacter::FinishDamageRecovery()

@@ -1,0 +1,8 @@
+{
+  "generator": "Built-in image_gen tool",
+  "file": "Content/Effects/Textures/T_Impact_Ring.png",
+  "size": [256, 256],
+  "transparent_background": true,
+  "unreal_asset": "/Game/Effects/Textures/T_Impact_Ring",
+  "prompt": "Use case: stylized-concept\nAsset type: Unreal Engine game VFX texture, single centered circular ring mask sprite.\nPrimary request: one clean white circular band centered exactly in a square canvas. A hollow circle with an entirely transparent center, consistent medium band thickness, smooth circular contour. Outer diameter 70 percent of canvas width; band thickness about 7 percent of canvas width. White neutral grayscale so a game material can tint it. Smooth antialiased edges with a tiny soft alpha feather only at the inner and outer edges, solid white body.\nBackground: actual fully transparent background including the hollow center. Flat front view, perfectly round, no perspective.\nConstraints: one ring only, no filled disk, no radial spokes or burst, no extra rings, no text, no symbols, no shadows, no lighting scene, no black background, no baked checkerboard. Generous equal padding on every side."
+}

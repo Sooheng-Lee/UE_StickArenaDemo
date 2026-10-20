@@ -42,7 +42,7 @@ void ASACRWeapon::OnHitBeginOverlap(UPrimitiveComponent* OverlappedComponent, AA
 	if (ASABaseCharacter* Character = Cast<ASABaseCharacter>(OtherActor))
 	{
 		HitActors.Add(TWeakObjectPtr<AActor>(OtherActor));
-		Character->GetDamage(Attacker);
+		Character->TakeDamage(Attacker, HitEffect, SweepResult.ImpactPoint);
 	}
 	else if (ASALevelObject* LevelObject = Cast<ASALevelObject>(OtherActor))
 	{

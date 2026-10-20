@@ -9,6 +9,7 @@
 class USABaseAnimInstance;
 class ASAWeaponActor;
 class USAStatusComponent;
+class UNiagaraSystem;
 UCLASS()
 class UE_STICKARENADEMO_API ASABaseCharacter : public ACharacter
 {
@@ -24,7 +25,7 @@ public:
 	virtual void ApplyDamageKnockback(const FVector& VelocityChange);
 	void RestoreFromDamaged();
 	UFUNCTION(BlueprintCallable, Category="Combat")
-	virtual void GetDamage(AActor* Attacker = nullptr);
+	virtual void TakeDamage(AActor* Attacker = nullptr, UNiagaraSystem* DamagedEffect = nullptr, FVector ImpactPoint = FVector::ZeroVector);
 	UFUNCTION(BlueprintCallable)
 	ECharacterState GetCharacterState() const { return CharacterState; }
 	void SetCharacterState(ECharacterState State) { CharacterState = State; }
@@ -32,6 +33,7 @@ public:
 	void SetWeaponType(EWeaponType Type);
 	ASAWeaponActor* GetWeapon() const { return OwnedWeapon.Get(); }
 	void SetWeapon(ASAWeaponActor* Weapon) { OwnedWeapon = Weapon; };
+	UNiagaraSystem* GetHitEffect() const { return HitEffect.Get(); };
 protected:
 	virtual void BeginPlay() override;
 	void Attack();
@@ -45,6 +47,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Status")
 	TObjectPtr<USAStatusComponent> StatusComponent;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Effects")
+	TObjectPtr<UNiagaraSystem> HitEffect;
+
 
 private:
 	FTimerHandle DamageRecoveryTimerHandle;

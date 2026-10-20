@@ -8,7 +8,7 @@ public class UE_StickArenaDemo : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "GameplayTags", "UMG" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "GameplayTags", "UMG", "Niagara" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets", "Slate", "SlateCore" });
 		if (Target.bBuildEditor)
