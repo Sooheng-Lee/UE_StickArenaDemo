@@ -66,6 +66,11 @@ void ASABaseCharacter::BeginSpawning()
 	bDeathDissolving = false;
 	bRespawnScheduled = false;
 	CharacterState = ECharacterState::Spawning;
+	if (bWaterMovementLocked)
+	{
+		bWaterMovementLocked = false;
+		GetCharacterMovement()->SetMovementMode(GetCharacterMovement()->DefaultLandMovementMode);
+	}
 	GetWorldTimerManager().ClearTimer(DamageRecoveryTimerHandle);
 	GetWorldTimerManager().ClearTimer(RespawnTimerHandle);
 	GetWorldTimerManager().ClearTimer(DeathAnimationTimerHandle);
@@ -76,6 +81,20 @@ void ASABaseCharacter::BeginSpawning()
 	GetCapsuleComponent()->SetCollisionEnabled(SavedCollision);
 	ActivateLifecycleMaterials();
 	SetLifecycleVisibility(0.0f);
+}
+
+void ASABaseCharacter::DieInWater()
+{
+	if (!CanRespawnLocally()) return;
+	bWaterMovementLocked = true;
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	Movement->StopMovementImmediately();
+	Movement->ClearAccumulatedForces();
+	Movement->DisableMovement();
+	ConsumeMovementInputVector();
+	if (StatusComponent) StatusComponent->HP = 0.0f;
+	SetCharacterState(ECharacterState::Dead);
+	if (USAUdpClientComponent* Client = FindComponentByClass<USAUdpClientComponent>()) Client->RequestStateUpdate();
 }
 
 void ASABaseCharacter::Respawn()
@@ -259,6 +278,7 @@ void ASABaseCharacter::Attack()
 
 void ASABaseCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
 {
+	if (bWaterMovementLocked) return;
 	GetCharacterMovement()->AddImpulse(VelocityChange, true);
 	if (USAUdpClientComponent* Client = FindComponentByClass<USAUdpClientComponent>())
 		Client->RequestStateUpdate();

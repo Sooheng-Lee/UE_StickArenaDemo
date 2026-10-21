@@ -13,7 +13,6 @@ public class UE_StickArenaDemo : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[] { "Sockets", "Slate", "SlateCore" });
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.Add("UnrealEd"); // Real-map spawn automation tests only.
 			PrivateDependencyModuleNames.Add("RenderCore"); // Flush the editor minimap bake before reading pixels.
 		}
 

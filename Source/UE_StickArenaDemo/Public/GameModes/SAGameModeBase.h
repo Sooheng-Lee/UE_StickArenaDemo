@@ -22,6 +22,13 @@ public:
 	bool FindRandomPlayerSpawnTransform(AController* Player, FTransform& OutTransform);
 
 protected:
+	virtual void BeginPlay() override;
+
+	UFUNCTION()
+	void OnWaterBeginOverlap(UPrimitiveComponent* Water, AActor* OtherActor, UPrimitiveComponent* OtherComponent,
+		int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	void KillCharacterInWater(AActor* Actor);
+
 	UPROPERTY(EditDefaultsOnly, Category="Player Spawn", meta=(ClampMin="0.0"))
 	float BridgeSpawnClearance = 150.0f;
 	UPROPERTY(EditDefaultsOnly, Category="Player Spawn", meta=(ClampMin="0.0"))

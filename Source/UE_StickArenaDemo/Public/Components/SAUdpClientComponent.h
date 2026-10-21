@@ -59,13 +59,11 @@ private:
 	void ResetNetworkState();
 	UPROPERTY(Transient)
 	TObjectPtr<USAUdpClientGameInstance> NetworkGameInstance;
-	friend class FSAMatchTimerTest;
 	void ReceiveMatchState(const FString& Packet);
 	FString MatchEpoch;
 	TSet<FString> RetiredMatchEpochs;
 	int64 MatchSequence = 0;
 	double MatchDeadline = 0.0;
-	friend class FSACrystalTowerEffectTest;
 	void ReceiveCrystal(const FString& Packet);
 	FString CrystalEpoch;
 	TSet<FString> RetiredCrystalEpochs;
@@ -74,8 +72,6 @@ private:
 	TSet<FString> AppliedCrystalRewards;
 	struct FPendingCrystalHit { FString Packet; double Expires = 0; double NextSend = 0; };
 	TMap<FString, FPendingCrystalHit> PendingCrystalHits;
-    friend class FSATreasureNetworkTest;
-	friend class FSATreasurePickupIntegrationTest;
     void ReceiveTreasure(const FString& Packet);
     void ClearTreasure();
     UPROPERTY()

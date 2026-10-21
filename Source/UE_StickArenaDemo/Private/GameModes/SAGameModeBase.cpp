@@ -2,7 +2,9 @@
 
 
 #include "GameModes/SAGameModeBase.h"
+#include "Characters/SABaseCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -12,6 +14,55 @@
 #include "Materials/MaterialInterface.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSASpawn, Log, All);
+
+void ASAGameModeBase::BeginPlay()
+{
+	Super::BeginPlay();
+	for (TActorIterator<AActor> Actor(GetWorld()); Actor; ++Actor)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> Components;
+		Actor->GetComponents(Components);
+		for (UStaticMeshComponent* Component : Components)
+		{
+			if (!Component->GetStaticMesh() || Component->GetStaticMesh()->GetFName() != FName(TEXT("SM_Water"))) continue;
+			// The visual water mesh has no usable simple overlap collision.
+			// Its rectangular local bounds provide a volume that follows the Water actor.
+			FVector Minimum, Maximum;
+			Component->GetLocalBounds(Minimum, Maximum);
+			UBoxComponent* Trigger = NewObject<UBoxComponent>(*Actor, TEXT("WaterDeathTrigger"));
+			Actor->AddInstanceComponent(Trigger);
+			Trigger->SetupAttachment(Component);
+			Trigger->SetRelativeLocation((Minimum + Maximum) * 0.5f);
+			Trigger->SetBoxExtent(((Maximum - Minimum) * 0.5f).ComponentMax(FVector(1.0f)));
+			Trigger->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+			Trigger->SetCollisionObjectType(ECC_WorldDynamic);
+			Trigger->SetCollisionResponseToAllChannels(ECR_Ignore);
+			Trigger->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+			Trigger->SetGenerateOverlapEvents(true);
+			Trigger->OnComponentBeginOverlap.AddUniqueDynamic(this, &ASAGameModeBase::OnWaterBeginOverlap);
+			Component->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+			Trigger->RegisterComponent();
+			// Include characters already touching water when play begins.
+			TArray<AActor*> Overlapping;
+			Trigger->GetOverlappingActors(Overlapping, ASABaseCharacter::StaticClass());
+			for (AActor* Overlap : Overlapping) KillCharacterInWater(Overlap);
+		}
+	}
+}
+
+void ASAGameModeBase::OnWaterBeginOverlap(UPrimitiveComponent* Water, AActor* OtherActor,
+	UPrimitiveComponent* OtherComponent, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+{
+	const ASABaseCharacter* Character = Cast<ASABaseCharacter>(OtherActor);
+	if (Character && OtherComponent == Character->GetCapsuleComponent()) KillCharacterInWater(OtherActor);
+}
+
+void ASAGameModeBase::KillCharacterInWater(AActor* Actor)
+{
+	ASABaseCharacter* Character = Cast<ASABaseCharacter>(Actor);
+	// Network proxies receive death/respawn from their owning client.
+	if (Character) Character->DieInWater();
+}
 
 namespace
 {

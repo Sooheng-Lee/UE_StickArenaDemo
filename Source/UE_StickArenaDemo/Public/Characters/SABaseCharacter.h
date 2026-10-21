@@ -43,6 +43,7 @@ public:
 	void WaitForDeathAnimation(float Duration);
 	UFUNCTION(BlueprintCallable, Category="Character|Lifecycle")
 	void Respawn();
+	void DieInWater();
 	UFUNCTION(BlueprintCallable, Category="Combat")
 	virtual void TakeDamage(AActor* Attacker = nullptr, UNiagaraSystem* DamagedEffect = nullptr, FVector ImpactPoint = FVector::ZeroVector);
 	UFUNCTION(BlueprintCallable)
@@ -96,6 +97,7 @@ private:
 	bool bDeathDissolving = false;
 	bool bNetworkLifecycleDriven = false;
 	bool bRespawnScheduled = false;
+	bool bWaterMovementLocked = false;
 	FTimerHandle RespawnTimerHandle;
 	FTimerHandle DeathAnimationTimerHandle;
 	ECollisionEnabled::Type SavedCollision = ECollisionEnabled::QueryAndPhysics;
