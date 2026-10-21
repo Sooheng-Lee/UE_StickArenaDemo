@@ -1,4 +1,5 @@
 #include "Components/SAUdpClientComponent.h"
+#include "GamePlay/SAUdpClientGameInstance.h"
 #include "Characters/SAEnemyCharacter.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
@@ -8,11 +9,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/SkeletalMesh.h"
-#include "IPAddress.h"
-#include "Sockets.h"
-#include "SocketSubsystem.h"
 #include <charconv>
-#include "Misc/CoreDelegates.h"
 #include "LevelObjects/SATreasureBox.h"
 #include "LevelObjects/SACrystalTower.h"
 #include "EngineUtils.h"
@@ -99,7 +96,7 @@ namespace
 	{
 		TArray<FString> Fields;
 		Packet.ParseIntoArray(Fields, TEXT("|"), false);
-		if ((Fields.Num() != 11 && Fields.Num() != 15) || Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
+		if ((Fields.Num() != 11 && Fields.Num() != 15 && Fields.Num() != 19) || Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
 		const TCHAR* Keys[] = { TEXT("session="), TEXT("seq="), TEXT("action="), TEXT("state="),
 			TEXT("input="), TEXT("pos="), TEXT("vel="), TEXT("rot="), TEXT("attack=") };
 		for (int32 Index = 0; Index < 9; ++Index)
@@ -127,7 +124,7 @@ namespace
 		if (!ParseVector(Fields[6], State.MovementInput) || !ParseVector(Fields[7], State.Position)
 			|| !ParseVector(Fields[8], State.Velocity) || !ParseVector(Fields[9], Rotation)) return false;
 		State.Rotation = FRotator(Rotation.X, Rotation.Y, Rotation.Z);
-		if (Fields.Num() == 15)
+		if (Fields.Num() >= 15)
 		{
 			const TCHAR* WeaponKeys[] = { TEXT("weapon="), TEXT("weaponid="), TEXT("ammo="), TEXT("maxammo=") };
 			for (int32 Index = 0; Index < 4; ++Index)
@@ -150,6 +147,21 @@ namespace
 			if (State.WeaponClassPath.IsEmpty() && (State.Ammo != 0 || State.MaxAmmo != 0)) return false;
 			State.bHasWeaponState = true;
 		}
+		if (Fields.Num() == 19)
+		{
+			const TCHAR* StatusKeys[] = { TEXT("hp="), TEXT("maxhp="), TEXT("damage="), TEXT("defense=") };
+			float* Values[] = { &State.HP, &State.MaxHP, &State.DefaultDamage, &State.Defense };
+			for (int32 Index = 0; Index < 4; ++Index)
+			{
+				if (!Fields[Index + 15].RemoveFromStart(StatusKeys[Index], ESearchCase::CaseSensitive)) return false;
+				const FTCHARToUTF8 Utf8(*Fields[Index + 15]);
+				const auto Parsed = std::from_chars(Utf8.Get(), Utf8.Get() + Utf8.Length(), *Values[Index]);
+				if (Parsed.ec != std::errc{} || Parsed.ptr != Utf8.Get() + Utf8.Length()
+					|| !FMath::IsFinite(*Values[Index]) || *Values[Index] < 0.0f || *Values[Index] > 1000000.0f) return false;
+			}
+			if (State.HP > State.MaxHP) return false;
+			State.bHasStatusState = true;
+		}
 		return true;
 	}
 }
@@ -166,56 +178,42 @@ USAUdpClientComponent::USAUdpClientComponent()
 void USAUdpClientComponent::BeginPlay()
 {
 	Super::BeginPlay();
-    PreExitHandle = FCoreDelegates::OnPreExit.AddUObject(this, &USAUdpClientComponent::SendLeave);
-	SessionId = FGuid::NewGuid().ToString(EGuidFormats::Digits);
-	PlayerRegistration.PlayerId = SessionId;
+	// Possession can happen later; TickComponent will attach once locally controlled.
+	EnsureConnection();
 }
 
-bool USAUdpClientComponent::EnsureSocket()
+bool USAUdpClientComponent::EnsureConnection()
 {
-    if (bLeaving) return false;
 	const APawn* Pawn = Cast<APawn>(GetOwner());
 	if (!bEnabled || !Pawn || !Pawn->IsLocallyControlled()) return false;
-
-	ISocketSubsystem* Subsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
-	if (!Subsystem) return false;
-	if (!Socket)
+	if (!NetworkGameInstance) NetworkGameInstance = Cast<USAUdpClientGameInstance>(Pawn->GetGameInstance());
+	if (!NetworkGameInstance || !NetworkGameInstance->AttachClient(this)) return false;
+	const FString ConnectionSession = NetworkGameInstance->GetSessionId();
+	if (SessionId != ConnectionSession)
 	{
-		RemoteAddress = Subsystem->CreateInternetAddr();
-		bool bValidAddress = false;
-		RemoteAddress->SetIp(*ServerAddress, bValidAddress);
-		if (!bValidAddress || ServerPort < 1 || ServerPort > 65535)
-		{
-			UE_LOG(LogSAUdp, Error, TEXT("Invalid UDP endpoint: %s:%d"), *ServerAddress, ServerPort);
-			bEnabled = false;
-			return false;
-		}
-		RemoteAddress->SetPort(ServerPort);
-		Socket = Subsystem->CreateSocket(NAME_DGram, TEXT("StickArena UDP client"), false);
-		if (!Socket || !Socket->SetNonBlocking(true))
-		{
-			if (Socket) Subsystem->DestroySocket(Socket);
-			Socket = nullptr;
-			bEnabled = false;
-			UE_LOG(LogSAUdp, Error, TEXT("Failed to create UDP socket"));
-			return false;
-		}
-		UE_LOG(LogSAUdp, Log, TEXT("Sending player actions to %s:%d"), *ServerAddress, ServerPort);
+		ResetNetworkState();
+		SessionId = ConnectionSession;
+		PlayerRegistration.PlayerId = SessionId;
+		SendRegistration();
 	}
 	return true;
 }
 
+bool USAUdpClientComponent::IsRegistered() const
+{
+	return NetworkGameInstance && NetworkGameInstance->IsRegistered();
+}
+
 void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input)
 {
-	if (!EnsureSocket()) return;
+	if (!EnsureConnection()) return;
 	const APawn* Pawn = Cast<APawn>(GetOwner());
-	if (FCString::Strcmp(Action, TEXT("ATTACK")) == 0) ++AttackSequence;
-	if (!bRegistrationAcknowledged && RegistrationElapsed >= 1.0f) SendRegistration();
+	if (FCString::Strcmp(Action, TEXT("ATTACK")) == 0) NetworkGameInstance->RecordAttack();
 	// Wait for registration so worker processing cannot accept an unknown player.
-	if (!bRegistrationAcknowledged) return;
+	if (!IsRegistered()) return;
 	LocalPlayerState.PlayerId = SessionId;
-	LocalPlayerState.Sequence = ++Sequence;
-	LocalPlayerState.AttackSequence = AttackSequence;
+	LocalPlayerState.Sequence = NetworkGameInstance->NextStateSequence();
+	LocalPlayerState.AttackSequence = NetworkGameInstance->GetAttackSequence();
 	LocalPlayerState.Action = Action;
 	LocalPlayerState.MovementInput = FCString::Strcmp(Action, TEXT("ATTACK")) == 0 ? MovementInput : Input;
 	LocalPlayerState.Position = Pawn->GetActorLocation();
@@ -244,42 +242,35 @@ void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input
 				LocalPlayerState.Ammo = FMath::Clamp(Status->Ammo, 0, LocalPlayerState.MaxAmmo);
 			}
 		}
+		if (const USAStatusComponent* Status = SACharacter->GetStatusComponent())
+		{
+			LocalPlayerState.bHasStatusState = true;
+			LocalPlayerState.MaxHP = FMath::Clamp(Status->MaxHP, 0.0f, 1000000.0f);
+			LocalPlayerState.HP = FMath::Clamp(Status->HP, 0.0f, LocalPlayerState.MaxHP);
+			LocalPlayerState.DefaultDamage = FMath::Clamp(Status->DefaultDamage, 0.0f, 1000000.0f);
+			LocalPlayerState.Defense = FMath::Clamp(Status->Defense, 0.0f, 1000000.0f);
+		}
 	}
 	const FString Packet = FString::Printf(
-		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld|weapon=%s|weaponid=%s|ammo=%d|maxammo=%d"),
+		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld|weapon=%s|weaponid=%s|ammo=%d|maxammo=%d|hp=%.9g|maxhp=%.9g|damage=%.9g|defense=%.9g"),
 		*State.PlayerId, State.Sequence, *State.Action, ActivityName(State.State),
 		State.MovementInput.X, State.MovementInput.Y, State.MovementInput.Z,
 		State.Position.X, State.Position.Y, State.Position.Z, State.Velocity.X, State.Velocity.Y, State.Velocity.Z,
 		State.Rotation.Pitch, State.Rotation.Yaw, State.Rotation.Roll, State.AttackSequence,
-		*EncodeRegistrationField(State.WeaponClassPath), *State.WeaponInstanceId, State.Ammo, State.MaxAmmo);
+		*EncodeRegistrationField(State.WeaponClassPath), *State.WeaponInstanceId, State.Ammo, State.MaxAmmo,
+		State.HP, State.MaxHP, State.DefaultDamage, State.Defense);
 	SendPacket(Packet);
 }
 
 bool USAUdpClientComponent::SendPacket(const FString& Packet)
 {
-	const FTCHARToUTF8 Utf8(*Packet);
-	if (Utf8.Length() > 8192)
-	{
-		UE_LOG(LogSAUdp, Warning, TEXT("UDP packet exceeds 8192 bytes"));
-		return false;
-	}
-	int32 BytesSent = 0;
-	if (!Socket->SendTo(reinterpret_cast<const uint8*>(Utf8.Get()), Utf8.Length(), BytesSent, *RemoteAddress)
-		|| BytesSent != Utf8.Length())
-	{
-		if (!bReportedSendFailure)
-			UE_LOG(LogSAUdp, Warning, TEXT("UDP send failed"));
-		bReportedSendFailure = true;
-		return false;
-	}
-	bReportedSendFailure = false;
-	return true;
+	return NetworkGameInstance && NetworkGameInstance->SendPacket(Packet);
 }
 
 void USAUdpClientComponent::SendRegistration()
 {
 	const APawn* Pawn = Cast<APawn>(GetOwner());
-	if (!Pawn || !EnsureSocket()) return;
+	if (!Pawn || !EnsureConnection()) return;
 	PlayerRegistration.PlayerName = Pawn->GetName();
 	if (const APlayerState* State = Pawn->GetPlayerState())
 	{
@@ -299,43 +290,14 @@ void USAUdpClientComponent::SendRegistration()
 				PlayerRegistration.AnimInstanceClassPath = Mesh->GetAnimClass()->GetPathName();
 		}
 	}
-	const FString Packet = FString::Printf(
-		TEXT("SA2|type=REGISTER|session=%s|name=%s|character=%s|mesh=%s|anim=%s"),
-		*PlayerRegistration.PlayerId, *EncodeRegistrationField(PlayerRegistration.PlayerName),
-		*EncodeRegistrationField(PlayerRegistration.CharacterClassPath),
-		*EncodeRegistrationField(PlayerRegistration.SkeletalMeshPath),
-		*EncodeRegistrationField(PlayerRegistration.AnimInstanceClassPath));
-	SendPacket(Packet);
-	RegistrationElapsed = 0.0f;
+	NetworkGameInstance->RegisterPlayer(PlayerRegistration);
 }
 
-void USAUdpClientComponent::ReceivePackets()
+void USAUdpClientComponent::HandleServerPacket(const FString& Packet)
 {
-	if (!Socket) return;
-	uint32 Pending = 0;
-	// Bound work per frame even if unsolicited packets arrive.
-	for (int32 Count = 0; Count < 256 && Socket && Socket->HasPendingData(Pending); ++Count)
-	{
-		uint8 Buffer[8193];
-		int32 Received = 0;
-		TSharedRef<FInternetAddr> Sender = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->CreateInternetAddr();
-		if (!Socket->RecvFrom(Buffer, 8192, Received, *Sender)) continue;
-		if (!(*Sender == *RemoteAddress)) continue;
-		const FString Expected = TEXT("SA2|type=REGISTER_ACK|session=") + SessionId;
-		const FTCHARToUTF8 Utf8(*Expected);
-		if (Received == Utf8.Length() && FMemory::Memcmp(Buffer, Utf8.Get(), Received) == 0)
-		{
-			if (!bRegistrationAcknowledged) UE_LOG(LogSAUdp, Log, TEXT("Player registered: %s"), *SessionId);
-			bRegistrationAcknowledged = true;
-			continue;
-		}
-		bool bAscii = Received > 0 && Received <= 8192;
-		for (int32 Index = 0; Index < Received; ++Index) bAscii = bAscii && Buffer[Index] >= 32 && Buffer[Index] <= 126;
-		if (!bAscii) continue;
-		Buffer[Received] = 0;
-		const FString Packet = UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer));
-		if (Packet.StartsWith(TEXT("SA6|type=MATCH_STATE|"))) { ReceiveMatchState(Packet); continue; }
-        if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_STATE|"))) { ReceiveCrystal(Packet); continue; }
+	if (!bEnabled) return;
+	if (Packet.StartsWith(TEXT("SA6|type=MATCH_STATE|"))) { ReceiveMatchState(Packet); return; }
+        if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_STATE|"))) { ReceiveCrystal(Packet); return; }
         if (Packet.StartsWith(TEXT("SA5|type=CRYSTAL_ACK|")))
         {
             TArray<FString> Fields;
@@ -346,9 +308,9 @@ void USAUdpClientComponent::ReceivePackets()
                 if (const auto* Hit = PendingCrystalHits.Find(Id))
                     if (Hit->Packet.Contains(TEXT("|") + Fields[4] + TEXT("|"))) PendingCrystalHits.Remove(Id);
             }
-            continue;
+            return;
         }
-        if (Packet.StartsWith(TEXT("SA4|type=TREASURE_STATE|"))) { ReceiveTreasure(Packet); continue; }
+        if (Packet.StartsWith(TEXT("SA4|type=TREASURE_STATE|"))) { ReceiveTreasure(Packet); return; }
         if (Packet.StartsWith(TEXT("SA4|type=HIT_ACK|")))
         {
             TArray<FString> Fields;
@@ -359,7 +321,7 @@ void USAUdpClientComponent::ReceivePackets()
                 if (const auto* PendingHit = PendingTreasureHits.Find(Id))
                     if (PendingHit->Packet.EndsWith(TEXT("|") + Fields[4])) PendingTreasureHits.Remove(Id);
             }
-            continue;
+            return;
         }
 		if (Packet.StartsWith(TEXT("SA2|type=PLAYER_INFO|"), ESearchCase::CaseSensitive))
 		{
@@ -370,17 +332,16 @@ void USAUdpClientComponent::ReceivePackets()
 				RemoteLastReceived.Add(Info.PlayerId, FPlatformTime::Seconds());
 				UpdateRemoteCharacter(Info.PlayerId);
 			}
-			continue;
+			return;
 		}
 		FSAPlayerNetworkState State;
-		if (Received > 2048 || !ParsePlayerState(Packet, State) || State.PlayerId == SessionId) continue;
+		if (Packet.Len() > 2048 || !ParsePlayerState(Packet, State) || State.PlayerId == SessionId) return;
 		const FSAPlayerNetworkState* Previous = RemotePlayerStates.Find(State.PlayerId);
-		if (Previous && Previous->Sequence >= State.Sequence) continue;
+		if (Previous && Previous->Sequence >= State.Sequence) return;
 		RemoteLastReceived.Add(State.PlayerId, FPlatformTime::Seconds());
 		RemotePlayerStates.Add(State.PlayerId, State);
 		UpdateRemoteCharacter(State.PlayerId);
 		OnRemotePlayerStateReceived.Broadcast(State);
-	}
 }
 
 void USAUdpClientComponent::UpdateRemoteCharacter(const FString& PlayerId)
@@ -476,8 +437,7 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	const APawn* Pawn = Cast<APawn>(GetOwner());
 	if (!bEnabled || !Pawn || !Pawn->IsLocallyControlled()) return;
-	if (!EnsureSocket()) return;
-	ReceivePackets();
+	if (!EnsureConnection()) return;
     const double TreasureNow = FPlatformTime::Seconds();
     for (auto It = PendingCrystalHits.CreateIterator(); It; ++It)
     {
@@ -505,7 +465,7 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			It.RemoveCurrent();
 			continue;
 		}
-		if (bRegistrationAcknowledged && TreasureNow >= It.Value().NextSend)
+		if (IsRegistered() && TreasureNow >= It.Value().NextSend)
 		{
 			// Refresh position before retrying so a pickup immediately after movement is valid.
 			SendAction(TEXT("STATE"), MovementInput);
@@ -513,9 +473,6 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			It.Value().NextSend = TreasureNow + 0.2;
 		}
 	}
-	RegistrationElapsed += DeltaTime;
-	// Periodic registration also recovers if the server restarts or expires a session.
-	if (RegistrationElapsed >= (bRegistrationAcknowledged ? 3.0f : 1.0f)) SendRegistration();
 	TArray<FString> Expired;
 	for (const auto& Entry : RemoteLastReceived)
 		if (FPlatformTime::Seconds() - Entry.Value > 10.0) Expired.Add(Entry.Key);
@@ -535,48 +492,45 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 	SendAction(TEXT("STATE"), MovementInput);
 }
 
-void USAUdpClientComponent::SendLeave()
+void USAUdpClientComponent::ResetNetworkState()
 {
-    if (bLeaving) return;
-    bLeaving = true;
-    // Use the existing socket before closing it; never create a connection during teardown.
-    if (Socket && RemoteAddress.IsValid() && !SessionId.IsEmpty())
-    {
-        const FString LeavePacket = TEXT("SA2|type=LEAVE|session=") + SessionId;
-        for (int32 Attempt = 0; Attempt < 3; ++Attempt) SendPacket(LeavePacket);
-    }
+	for (const auto& Entry : RemoteCharacters)
+		if (IsValid(Entry.Value)) Entry.Value->Destroy();
+	ClearTreasure();
+	RemoteCharacters.Reset();
+	RemotePlayerRegistrations.Reset();
+	RemotePlayerStates.Reset();
+	RemoteLastReceived.Reset();
+	MatchEpoch.Reset();
+	RetiredMatchEpochs.Reset();
+	MatchSequence = 0;
+	MatchDeadline = 0.0;
+	CrystalEpoch.Reset();
+	RetiredCrystalEpochs.Reset();
+	CrystalRevisions.Reset();
+	CrystalCycles.Reset();
+	AppliedCrystalRewards.Reset();
+	PendingCrystalHits.Reset();
+	TreasureEpoch.Reset();
+	RetiredTreasureEpochs.Reset();
 }
 
 void USAUdpClientComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-    SendLeave();
-    FCoreDelegates::OnPreExit.Remove(PreExitHandle);
-	for (const auto& Entry : RemoteCharacters)
-		if (IsValid(Entry.Value)) Entry.Value->Destroy();
-	ClearTreasure();
-    RemoteCharacters.Reset();
-	RemotePlayerRegistrations.Reset();
-	RemotePlayerStates.Reset();
-	RemoteLastReceived.Reset();
-	if (Socket)
-	{
-		Socket->Close();
-		if (ISocketSubsystem* Subsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM))
-			Subsystem->DestroySocket(Socket);
-		Socket = nullptr;
-	}
-	RemoteAddress.Reset();
+	if (NetworkGameInstance) NetworkGameInstance->DetachClient(this);
+	ResetNetworkState();
+	NetworkGameInstance = nullptr;
 	Super::EndPlay(EndPlayReason);
 }
 
 void USAUdpClientComponent::SendTreasureHit(const FString& Id)
 {
-    if (Id.IsEmpty() || TreasureEpoch.IsEmpty() || !bRegistrationAcknowledged || !EnsureSocket()) return;
+    if (Id.IsEmpty() || TreasureEpoch.IsEmpty() || !IsRegistered() || !EnsureConnection()) return;
     // Only one in-flight hit per box, with the same sequence on every retry.
     if (PendingTreasureHits.Contains(Id)) return;
     FPendingTreasureHit Hit;
     Hit.Packet = FString::Printf(TEXT("SA4|type=BOX_HIT|epoch=%s|session=%s|id=%s|seq=%lld"),
-        *TreasureEpoch, *SessionId, *Id, ++TreasureHitSequence);
+        *TreasureEpoch, *SessionId, *Id, NetworkGameInstance->NextRequestSequence());
     Hit.Expires = FPlatformTime::Seconds() + 2.0;
     Hit.NextSend = FPlatformTime::Seconds() + 0.2;
     SendPacket(Hit.Packet);
@@ -603,12 +557,13 @@ void USAUdpClientComponent::RequestTreasurePickup(ASAWeaponActor* Weapon)
 	const FString& Id = Weapon->GetTreasureId();
 	if (TreasureActors.FindRef(Id) != Weapon || TreasureOwners.Contains(Id) || PendingTreasurePickups.Contains(Id)) return;
 	const APawn* Pawn = Cast<APawn>(GetOwner());
-	if (!Pawn || !Pawn->IsLocallyControlled() || !EnsureSocket()) return;
+	if (!Pawn || !Pawn->IsLocallyControlled() || !EnsureConnection()) return;
 	FPendingTreasurePickup Request;
+	const int64 PickupSequence = NetworkGameInstance->NextRequestSequence();
 	Request.Packet = FString::Printf(TEXT("SA4|type=PICKUP|epoch=%s|session=%s|id=%s|seq=%lld"),
-		*TreasureEpoch, *SessionId, *Id, ++TreasurePickupSequence);
+		*TreasureEpoch, *SessionId, *Id, PickupSequence);
 	Request.Weapon = Weapon;
-	RequestedPickupSequences.Add(Id, TreasurePickupSequence);
+	RequestedPickupSequences.Add(Id, PickupSequence);
 	PendingTreasurePickups.Add(Id, MoveTemp(Request));
 }
 
@@ -740,10 +695,10 @@ void USAUdpClientComponent::ReceiveTreasure(const FString& Packet)
 void USAUdpClientComponent::SendCrystalHit(const FString& Id)
 {
 	const int64* Cycle = CrystalCycles.Find(Id);
-	if (!Cycle || CrystalEpoch.IsEmpty() || !bRegistrationAcknowledged || PendingCrystalHits.Contains(Id) || !EnsureSocket()) return;
+	if (!Cycle || CrystalEpoch.IsEmpty() || !IsRegistered() || PendingCrystalHits.Contains(Id) || !EnsureConnection()) return;
 	FPendingCrystalHit Hit;
 	Hit.Packet = FString::Printf(TEXT("SA5|type=CRYSTAL_HIT|epoch=%s|session=%s|id=%s|seq=%lld|cycle=%lld"),
-		*CrystalEpoch, *SessionId, *Id, ++CrystalHitSequence, *Cycle);
+		*CrystalEpoch, *SessionId, *Id, NetworkGameInstance->NextRequestSequence(), *Cycle);
 	Hit.Expires = FPlatformTime::Seconds() + 2.0;
 	Hit.NextSend = FPlatformTime::Seconds() + 0.2;
 	SendAction(TEXT("STATE"), MovementInput);

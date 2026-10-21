@@ -5,6 +5,8 @@
 #include "Characters/SAEnemyCharacter.h"
 #include "Characters/SAPlayerCharacter.h"
 #include "Components/SAUdpClientComponent.h"
+#include "GamePlay/SAUdpClientGameInstance.h"
+#include "UObject/StrongObjectPtr.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -29,6 +31,21 @@ namespace
 	struct FSAReplicationTestWorld
 	{
 		UWorld* World = UWorld::CreateWorld(EWorldType::Game, false);
+		TArray<TStrongObjectPtr<USAUdpClientGameInstance>> Connections;
+		void Connect(USAUdpClientComponent* Client, int32 Port)
+		{
+			USAUdpClientGameInstance* Connection = NewObject<USAUdpClientGameInstance>(GEngine);
+			Connections.Emplace(Connection);
+			Connection->ConnectToServer(TEXT("127.0.0.1"), Port);
+			FindFProperty<FObjectProperty>(USAUdpClientComponent::StaticClass(), TEXT("NetworkGameInstance"))
+				->SetObjectPropertyValue_InContainer(Client, Connection);
+			Client->TickComponent(0.0f, LEVELTICK_All, nullptr);
+		}
+		void Tick(USAUdpClientComponent* Client, float DeltaTime = 0.1f)
+		{
+			Client->TickComponent(DeltaTime, LEVELTICK_All, nullptr);
+			if (Client->GetConnection()) Client->GetConnection()->TickNetwork(DeltaTime);
+		}
 		FSAReplicationTestWorld()
 		{
 			GEngine->CreateNewWorldContext(EWorldType::Game).SetCurrentWorld(World);
@@ -39,6 +56,7 @@ namespace
 		}
 		~FSAReplicationTestWorld()
 		{
+			for (const auto& Connection : Connections) Connection->DisconnectFromServer();
 			GEngine->DestroyWorldContext(World);
 			World->DestroyWorld(false);
 		}
@@ -216,8 +234,8 @@ bool FSAEnemyUdpReceiveTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Test player is locally controlled"), Player->IsLocallyControlled());
 	TSharedRef<FInternetAddr> Address = Server.Subsystem->CreateInternetAddr();
 	Server.Socket->GetAddress(*Address);
-	FindFProperty<FIntProperty>(USAUdpClientComponent::StaticClass(), TEXT("ServerPort"))->SetPropertyValue_InContainer(Client, Address->GetPort());
-	Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+	TestWorld.Connect(Client, Address->GetPort());
+	TestWorld.Tick(Client);
 	uint8 Buffer[8192];
 	int32 Received = 0;
 	TSharedRef<FInternetAddr> ClientAddress = Server.Subsystem->CreateInternetAddr();
@@ -238,18 +256,227 @@ bool FSAEnemyUdpReceiveTest::RunTest(const FString& Parameters)
 	const FString Packet = FString::Printf(TEXT("SA3|type=PLAYER_STATE|session=%s|seq=1|action=STATE|state=MOVING|input=1,0,0|pos=100,200,90|vel=100,0,0|rot=0,90,0|attack=0"), *Info.PlayerId);
 	Server.Send(Packet, *ClientAddress); // State arriving before metadata must be cached.
 	Server.Send(Metadata, *ClientAddress);
-	Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+	TestWorld.Tick(Client);
 	ASAEnemyCharacter* Enemy = Client->GetRemoteCharacter(Info.PlayerId);
 	if (!TestNotNull(TEXT("UDP metadata/state spawn enemy automatically"), Enemy)) return false;
 	TestTrue(TEXT("Received position applied"), Enemy->GetActorLocation().Equals(FVector(100, 200, 90)));
 	TestTrue(TEXT("Received rotation applied"), Enemy->GetActorRotation().Equals(FRotator(0, 90, 0)));
 	Server.Send(Metadata, *ClientAddress);
 	Server.Send(Packet, *ClientAddress);
-	Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+	TestWorld.Tick(Client);
 	TestTrue(TEXT("Repeated packets preserve one actor per player"), Client->GetRemoteCharacter(Info.PlayerId) == Enemy);
+	const FString HealthPacket = Packet.Replace(TEXT("seq=1"), TEXT("seq=2"))
+		+ TEXT("|weapon=|weaponid=|ammo=0|maxammo=0|hp=37.5|maxhp=150|damage=12.5|defense=7");
+	Server.Send(HealthPacket, *ClientAddress);
+	TestWorld.Tick(Client);
+	TestEqual(TEXT("UDP health snapshot applied"), Enemy->GetStatusComponent()->HP, 37.5f);
+	TestEqual(TEXT("UDP maximum health applied"), Enemy->GetStatusComponent()->MaxHP, 150.0f);
+	for (const FString InvalidHP : {TEXT("nan"), TEXT("inf"), TEXT("-1"), TEXT("151"), TEXT("1000001"), TEXT("37junk")})
+	{
+		Server.Send(HealthPacket.Replace(TEXT("seq=2"), TEXT("seq=3")).Replace(TEXT("hp=37.5|"), *(TEXT("hp=") + InvalidHP + TEXT("|"))), *ClientAddress);
+		TestWorld.Tick(Client);
+	}
+	TestEqual(TEXT("Invalid health packets do not replace latest state"), Enemy->NetworkState.Sequence, int64{2});
+	Server.Send(Packet, *ClientAddress);
+	TestWorld.Tick(Client);
+	TestEqual(TEXT("Stale legacy packet cannot reset health"), Enemy->GetStatusComponent()->HP, 37.5f);
+	USAUdpClientGameInstance* Connection = Client->GetConnection();
 	Player->Destroy();
 	TestTrue(TEXT("Remote actors destroyed with local session"), Enemy->IsActorBeingDestroyed());
+	TestTrue(TEXT("Pawn teardown does not close the game instance socket"), Connection->IsConnected());
+	Connection->DisconnectFromServer();
+	bool bReceivedLeave = false;
+	Server.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(1));
+	uint32 Pending = 0;
+	while (Server.Socket->HasPendingData(Pending))
+	{
+		if (!Server.Socket->RecvFrom(Buffer, sizeof(Buffer) - 1, Received, *ClientAddress)) break;
+		Buffer[Received] = 0;
+		bReceivedLeave |= FString(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer))) == TEXT("SA2|type=LEAVE|session=") + LocalId;
+	}
+	TestTrue(TEXT("Game instance disconnect sends LEAVE before closing its socket"), bReceivedLeave);
 	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAHealthReplicationTest, "StickArena.Networking.HealthSynchronization",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSAHealthReplicationTest::RunTest(const FString& Parameters)
+{
+	int32 Port = 0;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("SAHealthTestPort="), Port) || Port <= 0)
+	{
+		AddError(TEXT("Run with -SAHealthTestPort=<isolated updated UDP server port>."));
+		return false;
+	}
+	FSAReplicationTestWorld TestWorld;
+	TArray<USAUdpClientComponent*> Clients;
+	const auto SpawnPlayer = [&]()
+	{
+		ASAPlayerCharacter* Player = TestWorld.World->SpawnActor<ASAPlayerCharacter>();
+		APlayerController* Controller = TestWorld.World->SpawnActor<APlayerController>();
+		Controller->Possess(Player);
+		USAUdpClientComponent* Client = Player->FindComponentByClass<USAUdpClientComponent>();
+		TestWorld.Connect(Client, Port);
+		Clients.Add(Client);
+		return Player;
+	};
+	const auto Id = [](USAUdpClientComponent* Client)
+	{
+		return FindFProperty<FStructProperty>(USAUdpClientComponent::StaticClass(), TEXT("PlayerRegistration"))
+			->ContainerPtrToValuePtr<FSAPlayerRegistration>(Client)->PlayerId;
+	};
+	const auto Pump = [&](TFunctionRef<bool()> Condition)
+	{
+		for (int32 Attempt = 0; Attempt < 300; ++Attempt)
+		{
+			for (USAUdpClientComponent* Client : Clients) TestWorld.Tick(Client);
+			if (Condition()) return true;
+			FPlatformProcess::Sleep(0.005f);
+		}
+		return false;
+	};
+	ASAPlayerCharacter* Owner = SpawnPlayer();
+	ASAPlayerCharacter* Observer = SpawnPlayer();
+	USAStatusComponent* Status = Owner->GetStatusComponent();
+	Status->MaxHP = 200;
+	Status->HP = 137.5f;
+	Status->DefaultDamage = 12.5f;
+	Status->Defense = 7;
+	const FString OwnerId = Id(Clients[0]);
+	if (!TestTrue(TEXT("Remote proxy receives owner's current health"), Pump([&]
+	{
+		ASAEnemyCharacter* Remote = Clients[1]->GetRemoteCharacter(OwnerId);
+		return Remote && Remote->HasSynchronizedHealth() && Remote->GetStatusComponent()->HP == Status->HP;
+	}))) return false;
+	ASAEnemyCharacter* Remote = Clients[1]->GetRemoteCharacter(OwnerId);
+	TestEqual(TEXT("Maximum health synchronized"), Remote->GetStatusComponent()->MaxHP, 200.0f);
+	TestEqual(TEXT("Attack buff synchronized"), Remote->GetStatusComponent()->DefaultDamage, 12.5f);
+	TestEqual(TEXT("Defense buff synchronized"), Remote->GetStatusComponent()->Defense, 7.0f);
+	Remote->TakeDamage(Observer);
+	TestEqual(TEXT("Predicted remote hit cannot independently subtract health"), Remote->GetStatusComponent()->HP, Status->HP);
+	TestEqual(TEXT("Owner health unaffected by proxy-only prediction"), Status->HP, 137.5f);
+	Owner->TakeDamage(Observer);
+	TestEqual(TEXT("Owning client applies damage once"), Status->HP, 136.5f);
+	TestTrue(TEXT("Damage reaches remote proxy"), Pump([&] { return Remote->GetStatusComponent()->HP == Status->HP; }));
+	Status->HP = 160.25f;
+	TestTrue(TEXT("Healing reaches remote proxy"), Pump([&] { return Remote->GetStatusComponent()->HP == Status->HP; }));
+	SpawnPlayer();
+	TestTrue(TEXT("Late join receives current health and maximum"), Pump([&]
+	{
+		ASAEnemyCharacter* LateRemote = Clients[2]->GetRemoteCharacter(OwnerId);
+		return LateRemote && LateRemote->GetStatusComponent()->HP == 160.25f && LateRemote->GetStatusComponent()->MaxHP == 200.0f;
+	}));
+	Status->HP = 0;
+	TestTrue(TEXT("Death synchronized across clients"), Pump([&]
+	{
+		const ASAEnemyCharacter* LateRemote = Clients[2]->GetRemoteCharacter(OwnerId);
+		return Remote->GetCharacterState() == ECharacterState::Dead
+			&& LateRemote && LateRemote->GetCharacterState() == ECharacterState::Dead;
+	}));
+	Remote->RestoreFromDamaged();
+	TestEqual(TEXT("Damage recovery cannot revive a dead proxy"), Remote->GetCharacterState(), ECharacterState::Dead);
+	const FSAPlayerNetworkState DeadState = Remote->NetworkState;
+	Status->HP = 100;
+	TestTrue(TEXT("Owner respawn restores proxy health and state"), Pump([&]
+	{
+		return Remote->GetStatusComponent()->HP == 100.0f && Remote->GetCharacterState() == ECharacterState::Idle;
+	}));
+	Remote->ApplyNetworkState(DeadState);
+	TestEqual(TEXT("Delayed death snapshot cannot undo respawn"), Remote->GetStatusComponent()->HP, 100.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAGameInstanceConnectionTest, "StickArena.Networking.GameInstanceLifetime",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSAGameInstanceConnectionTest::RunTest(const FString& Parameters)
+{
+	int32 Port = 0;
+	if (!FParse::Value(FCommandLine::Get(), TEXT("SAHealthTestPort="), Port) || Port <= 0)
+	{
+		AddError(TEXT("Run with -SAHealthTestPort=<isolated UDP server port>."));
+		return false;
+	}
+	FSAReplicationTestWorld FirstWorld;
+	const auto Spawn = [](UWorld* World)
+	{
+		ASAPlayerCharacter* Player = World->SpawnActor<ASAPlayerCharacter>();
+		World->SpawnActor<APlayerController>()->Possess(Player);
+		return Player;
+	};
+	ASAPlayerCharacter* FirstPawn = Spawn(FirstWorld.World);
+	ASAPlayerCharacter* Observer = Spawn(FirstWorld.World);
+	USAUdpClientComponent* FirstClient = FirstPawn->FindComponentByClass<USAUdpClientComponent>();
+	USAUdpClientComponent* ObserverClient = Observer->FindComponentByClass<USAUdpClientComponent>();
+	FirstWorld.Connect(FirstClient, Port);
+	FirstWorld.Connect(ObserverClient, Port);
+	USAUdpClientGameInstance* Connection = FirstClient->GetConnection();
+	const FString Session = Connection->GetSessionId();
+	const auto Pump = [&](USAUdpClientComponent* Client, TFunctionRef<bool()> Condition)
+	{
+		for (int32 Attempt = 0; Attempt < 300; ++Attempt)
+		{
+			if (Client) FirstWorld.Tick(Client);
+			FirstWorld.Tick(ObserverClient);
+			if (Condition()) return true;
+			FPlatformProcess::Sleep(0.005f);
+		}
+		return false;
+	};
+	if (!TestTrue(TEXT("Connection registered through game instance"), Pump(FirstClient, [&]
+	{
+		return Connection->IsRegistered() && ObserverClient->GetRemoteCharacter(Session);
+	}))) return false;
+	ASAEnemyCharacter* Remote = ObserverClient->GetRemoteCharacter(Session);
+	const int64 FirstSequence = Remote->NetworkState.Sequence;
+	FirstPawn->Destroy();
+	TestTrue(TEXT("Destroying Pawn keeps connection open"), Connection->IsConnected());
+	TestEqual(TEXT("Destroying Pawn keeps session identity"), Connection->GetSessionId(), Session);
+	// Registration can be retried without any active Pawn.
+	Connection->TickNetwork(3.1f);
+	TestTrue(TEXT("Detached connection remains registered"), Connection->IsRegistered());
+	FSAReplicationTestWorld NextWorld;
+	ASAPlayerCharacter* NextPawn = Spawn(NextWorld.World);
+	NextPawn->GetStatusComponent()->HP = 77.0f;
+	USAUdpClientComponent* NextClient = NextPawn->FindComponentByClass<USAUdpClientComponent>();
+	FindFProperty<FObjectProperty>(USAUdpClientComponent::StaticClass(), TEXT("NetworkGameInstance"))
+		->SetObjectPropertyValue_InContainer(NextClient, Connection);
+	TestTrue(TEXT("New world/Pawn resumes state sequence on the same connection"), Pump(NextClient, [&]
+	{
+		return Remote->NetworkState.Sequence > FirstSequence && Remote->GetStatusComponent()->HP == 77.0f;
+	}));
+	TestEqual(TEXT("Pawn in the new world uses existing session"), Connection->GetSessionId(), Session);
+	TestTrue(TEXT("Observer retains the same proxy across Pawn/world replacement"), ObserverClient->GetRemoteCharacter(Session) == Remote);
+	Connection->DisconnectFromServer();
+	TestFalse(TEXT("Explicit disconnect closes socket"), Connection->IsConnected());
+	TestFalse(TEXT("Explicit disconnect clears registration"), Connection->IsRegistered());
+	TestFalse(TEXT("Sending after disconnect cannot reopen socket"), Connection->SendPacket(TEXT("SA2|type=LEAVE|session=") + Session));
+	TestTrue(TEXT("Explicit reconnect succeeds"), Connection->ConnectToServer(TEXT("127.0.0.1"), Port));
+	TestNotEqual(TEXT("Reconnect creates fresh session"), Connection->GetSessionId(), Session);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAGameInstanceConfiguredTest, "StickArena.Networking.GameInstanceConfigured",
+	EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
+
+bool FSAGameInstanceConfiguredTest::RunTest(const FString& Parameters)
+{
+	for (const FWorldContext& Context : GEngine->GetWorldContexts())
+	{
+		if (Context.WorldType != EWorldType::Game || !Context.World()) continue;
+		USAUdpClientGameInstance* Connection = Cast<USAUdpClientGameInstance>(Context.World()->GetGameInstance());
+		if (!TestNotNull(TEXT("Configured game instance created at startup"), Connection)) return false;
+		APlayerController* Controller = Context.World()->GetFirstPlayerController();
+		USAUdpClientComponent* Client = Controller && Controller->GetPawn()
+			? Controller->GetPawn()->FindComponentByClass<USAUdpClientComponent>() : nullptr;
+		if (!TestNotNull(TEXT("Local player's gameplay adapter"), Client)) return false;
+		TestTrue(TEXT("Player uses its actual game instance connection"), Client->GetConnection() == Connection);
+		TestTrue(TEXT("Game instance core ticker received registration ACK"), Connection->IsRegistered());
+		return true;
+	}
+	AddError(TEXT("Run this test in a game instance with an isolated server."));
+	return false;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAWeaponReplicationTest, "StickArena.Networking.WeaponEquipment",
@@ -276,7 +503,7 @@ bool FSAWeaponReplicationTest::RunTest(const FString& Parameters)
 		APlayerController* Controller = TestWorld.World->SpawnActor<APlayerController>();
 		Controller->Possess(Player);
 		USAUdpClientComponent* Client = Player->FindComponentByClass<USAUdpClientComponent>();
-		FindFProperty<FIntProperty>(USAUdpClientComponent::StaticClass(), TEXT("ServerPort"))->SetPropertyValue_InContainer(Client, Port);
+		TestWorld.Connect(Client, Port);
 		Clients.Add(Client);
 		return Player;
 	};
@@ -289,7 +516,7 @@ bool FSAWeaponReplicationTest::RunTest(const FString& Parameters)
 	{
 		for (int32 Attempt = 0; Attempt < 200; ++Attempt)
 		{
-			for (USAUdpClientComponent* Client : Clients) Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+			for (USAUdpClientComponent* Client : Clients) TestWorld.Tick(Client);
 			if (Condition()) return true;
 			FPlatformProcess::Sleep(0.005f);
 		}
@@ -319,7 +546,7 @@ bool FSAWeaponReplicationTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Remote animation does not spend synchronized ammo"), RemoteA->GetStatusComponent()->Ammo, 3);
 	for (int32 Frame = 0; Frame < 5; ++Frame)
 	{
-		for (USAUdpClientComponent* Client : Clients) Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+		for (USAUdpClientComponent* Client : Clients) TestWorld.Tick(Client);
 		FPlatformProcess::Sleep(0.01f);
 	}
 	TestTrue(TEXT("Repeated snapshots do not duplicate weapon"), RemoteA->GetWeapon() == RemoteSword);
@@ -376,7 +603,7 @@ bool FSATreasurePickupIntegrationTest::RunTest(const FString& Parameters)
 		ASAPlayerCharacter* Player = TestWorld.World->SpawnActor<ASAPlayerCharacter>(PlayerClass, Position, FRotator::ZeroRotator, Params);
 		TestWorld.World->SpawnActor<APlayerController>()->Possess(Player);
 		USAUdpClientComponent* Client = Player->FindComponentByClass<USAUdpClientComponent>();
-		FindFProperty<FIntProperty>(USAUdpClientComponent::StaticClass(), TEXT("ServerPort"))->SetPropertyValue_InContainer(Client, Port);
+		TestWorld.Connect(Client, Port);
 		Clients.Add(Client);
 		return Player;
 	};
@@ -385,7 +612,7 @@ bool FSATreasurePickupIntegrationTest::RunTest(const FString& Parameters)
 		const double End = FPlatformTime::Seconds() + Timeout;
 		do
 		{
-			for (USAUdpClientComponent* Client : Clients) Client->TickComponent(0.1f, LEVELTICK_All, nullptr);
+			for (USAUdpClientComponent* Client : Clients) TestWorld.Tick(Client);
 			if (Condition()) return true;
 			FPlatformProcess::Sleep(0.005f);
 		} while (FPlatformTime::Seconds() < End);

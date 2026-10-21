@@ -61,7 +61,7 @@ void ASABaseCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
 
 void ASABaseCharacter::RestoreFromDamaged()
 {
-	SetCharacterState(ECharacterState::Idle);
+	if (CharacterState == ECharacterState::Damaged) SetCharacterState(ECharacterState::Idle);
 }
 
 void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffect, FVector ImpactPoint)
@@ -96,7 +96,9 @@ void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffec
 			{
 				UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), DamagedEffect, ImpactPoint, FRotator::ZeroRotator, FVector(0.1f), true, true);
 			}
-			StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
+			// A remote proxy may predict a hit reaction, but only its owning client changes HP.
+			if (!HasSynchronizedHealth())
+				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
 			if (StatusComponent->HP > 0) {
 				SetCharacterState(ECharacterState::Damaged);
 				AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());

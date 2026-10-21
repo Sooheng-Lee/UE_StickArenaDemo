@@ -1,5 +1,6 @@
 #include "Characters/SAEnemyCharacter.h"
 #include "Animation/AnimInstance.h"
+#include "AnimInstances/SABaseAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
@@ -89,6 +90,7 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	const bool bPlayAttack = bFirstState ? State.Action == TEXT("ATTACK") : State.AttackSequence > NetworkState.AttackSequence;
 	// Equipment must be installed before choosing the received attack's montage.
 	ApplyWeaponState(State);
+	ApplyStatusState(State);
 	NetworkState = State;
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
@@ -99,6 +101,31 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	GetCharacterMovement()->SetMovementMode(State.State == ESAPlayerActivity::Falling ? MOVE_Falling : MOVE_Walking);
 	GetCharacterMovement()->Velocity = State.Velocity;
 	if (bPlayAttack) Attack();
+}
+
+void ASAEnemyCharacter::ApplyStatusState(const FSAPlayerNetworkState& State)
+{
+	if (!State.bHasStatusState || !GetStatusComponent()) return;
+	bHasSynchronizedHealth = true;
+	USAStatusComponent* Status = GetStatusComponent();
+	const float PreviousHP = Status->HP;
+	Status->MaxHP = FMath::Max(0.0f, State.MaxHP);
+	Status->HP = FMath::Clamp(State.HP, 0.0f, Status->MaxHP);
+	Status->DefaultDamage = FMath::Max(0.0f, State.DefaultDamage);
+	Status->Defense = FMath::Max(0.0f, State.Defense);
+	if (Status->HP <= 0.0f && GetCharacterState() != ECharacterState::Dead)
+	{
+		SetCharacterState(ECharacterState::Dead);
+		if (USABaseAnimInstance* Anim = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance()))
+			Anim->PlayDeadAnim(FMath::Max(0.0f, PreviousHP - Status->HP));
+	}
+	else if (Status->HP > 0.0f && GetCharacterState() == ECharacterState::Dead)
+	{
+		if (UAnimInstance* Anim = GetMesh()->GetAnimInstance()) Anim->StopAllMontages(0.1f);
+		KnockbackVelocity = FVector::ZeroVector;
+		KnockbackOffset = FVector::ZeroVector;
+		SetCharacterState(ECharacterState::Idle);
+	}
 }
 
 void ASAEnemyCharacter::ApplyWeaponState(const FSAPlayerNetworkState& State)

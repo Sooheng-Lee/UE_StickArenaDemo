@@ -20,6 +20,7 @@ public:
 	virtual FVector GetVelocity() const override;
 	virtual void ApplyDamageKnockback(const FVector& VelocityChange) override;
 	virtual bool IsNetworkProxy() const override { return true; }
+	virtual bool HasSynchronizedHealth() const override { return bHasSynchronizedHealth; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Remote Player")
 	FSAPlayerRegistration PlayerRegistration;
@@ -41,6 +42,8 @@ protected:
 
 private:
 	void ApplyWeaponState(const FSAPlayerNetworkState& State);
+	void ApplyStatusState(const FSAPlayerNetworkState& State);
+	bool bHasSynchronizedHealth = false;
 	bool bHasNetworkState = false;
 	bool bAppearanceInitialized = false;
 	double LastStateTime = 0.0;

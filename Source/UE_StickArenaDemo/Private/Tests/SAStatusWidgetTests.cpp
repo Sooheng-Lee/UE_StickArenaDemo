@@ -57,6 +57,7 @@ bool FSADefenseTest::RunTest(const FString& Parameters)
 	Defender->TakeDamage(Attacker);
 	TestEqual(TEXT("Health cannot become negative"), Status->HP, 0.0f);
 	Status->HP = 100.0f;
+	Defender->SetCharacterState(ECharacterState::Idle); // Reset the preceding lethal-hit scenario.
 	Status->Defense = 2.0f;
 	ASAWeaponActor* Weapon = TestWorld.World->SpawnActor<ASAWeaponActor>();
 	FindFProperty<FFloatProperty>(ASAWeaponActor::StaticClass(), TEXT("Damage"))->SetPropertyValue_InContainer(Weapon, 10.0f);

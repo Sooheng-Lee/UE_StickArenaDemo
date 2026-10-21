@@ -48,6 +48,17 @@ struct UE_STICKARENADEMO_API FSAPlayerNetworkState
 	int32 Ammo = 0;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 MaxAmmo = 0;
+	// Optional for compatibility with older movement/equipment-only snapshots.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bHasStatusState = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float HP = 100.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float MaxHP = 100.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float DefaultDamage = 5.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float Defense = 2.0f;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSAOnRemotePlayerState, const FSAPlayerNetworkState&, PlayerState);
