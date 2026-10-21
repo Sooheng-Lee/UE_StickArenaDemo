@@ -15,6 +15,8 @@ class UCameraComponent;
 class UDataAsset_InputConfigs;
 class USAUdpClientComponent;
 class USAPlayerWidget;
+class USAPauseMenuWidget;
+class USACameraOcclusionComponent;
 UCLASS()
 class UE_STICKARENADEMO_API ASAPlayerCharacter : public ASABaseCharacter
 {
@@ -29,6 +31,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="HUD")
 	USAPlayerWidget* GetPlayerWidget() const { return PlayerWidget; }
+	UFUNCTION(BlueprintCallable, Category="Menu") void TogglePauseMenu();
+	UFUNCTION(BlueprintCallable, Category="Menu") void ResumeGame();
+	UFUNCTION(BlueprintCallable, Category="Menu") void QuitGame();
+	UFUNCTION(BlueprintPure, Category="Menu") bool IsPauseMenuOpen() const { return bPauseMenuOpen; }
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -45,6 +51,8 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
 	USpringArmComponent* CameraBoom;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Camera")
+	TObjectPtr<USACameraOcclusionComponent> CameraOcclusion;
 	UPROPERTY(EditDefaultsOnly, Category="Camera", meta=(AllowPrivateAccess="true"))
 	UCameraComponent* FollowCamera;
 	// Exponential response rate, separate from CharacterMovement's degrees-per-second rotation rate.
@@ -67,6 +75,9 @@ public:
 	void Attack(const FInputActionValue& Value);
 
 private:
+	UPROPERTY(Transient) TObjectPtr<USAPauseMenuWidget> PauseMenuWidget;
+	bool bPauseMenuOpen = false;
+	bool bQuitting = false;
 	UPROPERTY(VisibleInstanceOnly)
 	APlayerController* PC;
 	FVector LastMovementInputDirection = FVector::ZeroVector;

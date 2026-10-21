@@ -8,11 +8,17 @@
 #include "EnhancedInputSubsystems.h"
 #include "Components/SAInputComponent.h"
 #include "Components/SAUdpClientComponent.h"
+#include "Components/SACameraOcclusionComponent.h"
 #include "GamePlay/SAGameplayTags.h"
 #include "SADebugHelper.h"
 #include "Widget/SAPlayerWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "Items/SAWeaponActor.h"
+#include "Widget/SAPauseMenuWidget.h"
+#include "GamePlay/SAUdpClientGameInstance.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Components/InputComponent.h"
+#include "InputCoreTypes.h"
 ASAPlayerCharacter::ASAPlayerCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -22,6 +28,8 @@ ASAPlayerCharacter::ASAPlayerCharacter()
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("Camera Boom"));
 	CameraBoom->SetupAttachment(GetRootComponent());
 	CameraBoom->TargetArmLength = 600.0f;
+	CameraBoom->bDoCollisionTest = false;
+	CameraOcclusion = CreateDefaultSubobject<USACameraOcclusionComponent>(TEXT("Camera Occlusion"));
 	CameraBoom->SetRelativeRotation(FRotator(-60.0f, 0.0f, 0.0f));
 	CameraBoom->bUsePawnControlRotation = false;
 	CameraBoom->bInheritPitch = false;
@@ -45,6 +53,7 @@ ASAPlayerCharacter::ASAPlayerCharacter()
 void ASAPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindKey(EKeys::Escape, IE_Pressed, this, &ASAPlayerCharacter::TogglePauseMenu);
 	APlayerController* PlayerController = Cast<APlayerController>(GetController());
 	if (PlayerController == nullptr || InputConfig==nullptr) return;
 	ULocalPlayer* LocalPlayer = PlayerController->GetLocalPlayer();
@@ -72,7 +81,7 @@ void ASAPlayerCharacter::Tick(float DeltaTime)
 
 bool ASAPlayerCharacter::IsMovementBlocked() const
 {
-	return GetCharacterState() == ECharacterState::Dead || GetCharacterState() == ECharacterState::Damaged
+	return bPauseMenuOpen || bQuitting || GetCharacterState() == ECharacterState::Dead || GetCharacterState() == ECharacterState::Damaged
 		|| (UdpClient && UdpClient->IsMatchExpired());
 }
 
@@ -100,6 +109,8 @@ FVector2D ASAPlayerCharacter::GetMoveVector() const
 void ASAPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	// Apply to existing Blueprint instances that may have serialized the old default.
+	if (CameraBoom) CameraBoom->bDoCollisionTest = false;
 	DefaultWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
 	PC = Cast<APlayerController>(GetController());
 	if (PC) {
@@ -116,6 +127,7 @@ void ASAPlayerCharacter::PawnClientRestart()
 
 void ASAPlayerCharacter::NotifyControllerChanged()
 {
+	if (CameraOcclusion) CameraOcclusion->ClearOcclusion();
 	Super::NotifyControllerChanged();
 	if (HasActorBegunPlay()) RefreshPlayerWidget();
 }
@@ -144,12 +156,70 @@ void ASAPlayerCharacter::RefreshPlayerWidget()
 
 void ASAPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ResumeGame();
 	if (PlayerWidget)
 	{
 		PlayerWidget->RemoveFromParent();
 		PlayerWidget = nullptr;
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+void ASAPlayerCharacter::TogglePauseMenu()
+{
+	if (bQuitting) return;
+	if (bPauseMenuOpen)
+	{
+		ResumeGame();
+		return;
+	}
+	APlayerController* MenuController = Cast<APlayerController>(GetController());
+	if (!MenuController || !MenuController->IsLocalController() || !MenuController->GetLocalPlayer()) return;
+	PauseMenuWidget = CreateWidget<USAPauseMenuWidget>(MenuController, USAPauseMenuWidget::StaticClass());
+	if (!PauseMenuWidget) return;
+	bPauseMenuOpen = true;
+	UpdateMovementState();
+	MenuController->FlushPressedKeys();
+	PauseMenuWidget->AddToPlayerScreen(100);
+	FInputModeGameAndUI Mode;
+	Mode.SetWidgetToFocus(PauseMenuWidget->TakeWidget());
+	Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	Mode.SetHideCursorDuringCapture(false);
+	MenuController->SetInputMode(Mode);
+	MenuController->bShowMouseCursor = true;
+	PauseMenuWidget->FocusContinue();
+}
+
+void ASAPlayerCharacter::ResumeGame()
+{
+	if (!bPauseMenuOpen && !PauseMenuWidget) return;
+	bPauseMenuOpen = false;
+	if (PauseMenuWidget)
+	{
+		PauseMenuWidget->RemoveFromParent();
+		PauseMenuWidget = nullptr;
+	}
+	if (APlayerController* MenuController = Cast<APlayerController>(GetController()))
+	{
+		MenuController->FlushPressedKeys();
+		MenuController->SetInputMode(FInputModeGameOnly());
+		MenuController->bShowMouseCursor = true; // The arena uses the cursor for aiming.
+	}
+}
+
+void ASAPlayerCharacter::QuitGame()
+{
+	APlayerController* MenuController = Cast<APlayerController>(GetController());
+	if (bQuitting || !MenuController || !MenuController->IsLocalController()) return;
+	bQuitting = true;
+	UpdateMovementState();
+	// Send LEAVE before QuitGame starts tearing down the Pawn, world and socket.
+	if (USAUdpClientGameInstance* Connection = GetGameInstance<USAUdpClientGameInstance>())
+	{
+		UE_LOG(LogTemp, Log, TEXT("Menu quit: disconnecting session %s"), *Connection->GetSessionId());
+		Connection->DisconnectFromServer();
+	}
+	UKismetSystemLibrary::QuitGame(this, MenuController, EQuitPreference::Quit, false);
 }
 
 void ASAPlayerCharacter::Movement(const FInputActionValue& Value)
@@ -206,6 +276,7 @@ void ASAPlayerCharacter::StopMovementInput(const FInputActionValue& Value)
 
 void ASAPlayerCharacter::Attack(const FInputActionValue& Value)
 {
+	if (bPauseMenuOpen || bQuitting || GetCharacterState() != ECharacterState::Idle || (UdpClient && UdpClient->IsMatchExpired())) return;
 	UdpClient->SendAction(TEXT("ATTACK"));
 	Super::Attack();
 }

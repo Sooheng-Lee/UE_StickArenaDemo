@@ -76,6 +76,18 @@ namespace
 		}
 	}
 
+	const TCHAR* CharacterStateName(ECharacterState State)
+	{
+		switch (State)
+		{
+		case ECharacterState::Spawning: return TEXT("SPAWNING");
+		case ECharacterState::Dead: return TEXT("DEAD");
+		case ECharacterState::Damaged: return TEXT("DAMAGED");
+		case ECharacterState::Attack: return TEXT("ATTACK");
+		default: return TEXT("IDLE");
+		}
+	}
+
 	bool ParseVector(const FString& Text, FVector& Value)
 	{
 		TArray<FString> Parts;
@@ -96,7 +108,8 @@ namespace
 	{
 		TArray<FString> Fields;
 		Packet.ParseIntoArray(Fields, TEXT("|"), false);
-		if ((Fields.Num() != 11 && Fields.Num() != 15 && Fields.Num() != 19) || Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
+		if ((Fields.Num() != 11 && Fields.Num() != 15 && Fields.Num() != 19 && Fields.Num() != 21)
+			|| Fields[0] != TEXT("SA3") || Fields[1] != TEXT("type=PLAYER_STATE")) return false;
 		const TCHAR* Keys[] = { TEXT("session="), TEXT("seq="), TEXT("action="), TEXT("state="),
 			TEXT("input="), TEXT("pos="), TEXT("vel="), TEXT("rot="), TEXT("attack=") };
 		for (int32 Index = 0; Index < 9; ++Index)
@@ -147,7 +160,7 @@ namespace
 			if (State.WeaponClassPath.IsEmpty() && (State.Ammo != 0 || State.MaxAmmo != 0)) return false;
 			State.bHasWeaponState = true;
 		}
-		if (Fields.Num() == 19)
+		if (Fields.Num() >= 19)
 		{
 			const TCHAR* StatusKeys[] = { TEXT("hp="), TEXT("maxhp="), TEXT("damage="), TEXT("defense=") };
 			float* Values[] = { &State.HP, &State.MaxHP, &State.DefaultDamage, &State.Defense };
@@ -161,6 +174,22 @@ namespace
 			}
 			if (State.HP > State.MaxHP) return false;
 			State.bHasStatusState = true;
+		}
+		if (Fields.Num() == 21)
+		{
+			if (!Fields[19].RemoveFromStart(TEXT("character="), ESearchCase::CaseSensitive)
+				|| !Fields[20].RemoveFromStart(TEXT("visibility="), ESearchCase::CaseSensitive)) return false;
+			if (Fields[19] == TEXT("SPAWNING")) State.CharacterState = ECharacterState::Spawning;
+			else if (Fields[19] == TEXT("IDLE")) State.CharacterState = ECharacterState::Idle;
+			else if (Fields[19] == TEXT("ATTACK")) State.CharacterState = ECharacterState::Attack;
+			else if (Fields[19] == TEXT("DAMAGED")) State.CharacterState = ECharacterState::Damaged;
+			else if (Fields[19] == TEXT("DEAD")) State.CharacterState = ECharacterState::Dead;
+			else return false;
+			const FTCHARToUTF8 Utf8(*Fields[20]);
+			const auto Parsed = std::from_chars(Utf8.Get(), Utf8.Get() + Utf8.Length(), State.LifecycleVisibility);
+			if (Parsed.ec != std::errc{} || Parsed.ptr != Utf8.Get() + Utf8.Length()
+				|| !FMath::IsFinite(State.LifecycleVisibility) || State.LifecycleVisibility < 0.0f || State.LifecycleVisibility > 1.0f) return false;
+			State.bHasLifecycleState = true;
 		}
 		return true;
 	}
@@ -208,6 +237,9 @@ void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input
 {
 	if (!EnsureConnection()) return;
 	const APawn* Pawn = Cast<APawn>(GetOwner());
+	const ASABaseCharacter* CombatCharacter = Cast<ASABaseCharacter>(Pawn);
+	if (FCString::Strcmp(Action, TEXT("ATTACK")) == 0 && CombatCharacter
+		&& (CombatCharacter->GetCharacterState() == ECharacterState::Spawning || CombatCharacter->GetCharacterState() == ECharacterState::Dead)) return;
 	if (FCString::Strcmp(Action, TEXT("ATTACK")) == 0) NetworkGameInstance->RecordAttack();
 	// Wait for registration so worker processing cannot accept an unknown player.
 	if (!IsRegistered()) return;
@@ -232,6 +264,9 @@ void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input
 	LocalPlayerState.MaxAmmo = 0;
 	if (const ASABaseCharacter* SACharacter = Cast<ASABaseCharacter>(Pawn))
 	{
+		LocalPlayerState.bHasLifecycleState = true;
+		LocalPlayerState.CharacterState = SACharacter->GetCharacterState();
+		LocalPlayerState.LifecycleVisibility = SACharacter->GetLifecycleVisibility();
 		if (const ASAWeaponActor* Weapon = SACharacter->GetWeapon(); IsValid(Weapon))
 		{
 			LocalPlayerState.WeaponClassPath = Weapon->GetClass()->GetPathName();
@@ -249,16 +284,17 @@ void USAUdpClientComponent::SendAction(const TCHAR* Action, const FVector& Input
 			LocalPlayerState.HP = FMath::Clamp(Status->HP, 0.0f, LocalPlayerState.MaxHP);
 			LocalPlayerState.DefaultDamage = FMath::Clamp(Status->DefaultDamage, 0.0f, 1000000.0f);
 			LocalPlayerState.Defense = FMath::Clamp(Status->Defense, 0.0f, 1000000.0f);
+			if (LocalPlayerState.HP <= 0.0f) LocalPlayerState.CharacterState = ECharacterState::Dead;
 		}
 	}
 	const FString Packet = FString::Printf(
-		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld|weapon=%s|weaponid=%s|ammo=%d|maxammo=%d|hp=%.9g|maxhp=%.9g|damage=%.9g|defense=%.9g"),
+		TEXT("SA3|type=PLAYER_STATE|session=%s|seq=%lld|action=%s|state=%s|input=%.6f,%.6f,%.6f|pos=%.6f,%.6f,%.6f|vel=%.6f,%.6f,%.6f|rot=%.6f,%.6f,%.6f|attack=%lld|weapon=%s|weaponid=%s|ammo=%d|maxammo=%d|hp=%.9g|maxhp=%.9g|damage=%.9g|defense=%.9g|character=%s|visibility=%.6f"),
 		*State.PlayerId, State.Sequence, *State.Action, ActivityName(State.State),
 		State.MovementInput.X, State.MovementInput.Y, State.MovementInput.Z,
 		State.Position.X, State.Position.Y, State.Position.Z, State.Velocity.X, State.Velocity.Y, State.Velocity.Z,
 		State.Rotation.Pitch, State.Rotation.Yaw, State.Rotation.Roll, State.AttackSequence,
 		*EncodeRegistrationField(State.WeaponClassPath), *State.WeaponInstanceId, State.Ammo, State.MaxAmmo,
-		State.HP, State.MaxHP, State.DefaultDamage, State.Defense);
+		State.HP, State.MaxHP, State.DefaultDamage, State.Defense, CharacterStateName(State.CharacterState), State.LifecycleVisibility);
 	SendPacket(Packet);
 }
 

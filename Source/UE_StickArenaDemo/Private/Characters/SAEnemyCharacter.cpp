@@ -57,6 +57,7 @@ void ASAEnemyCharacter::InitializeRemotePlayer(const FSAPlayerRegistration& Regi
 		&& PlayerRegistration.AnimInstanceClassPath == Registration.AnimInstanceClassPath;
 	PlayerRegistration = Registration;
 	if (bSameAppearance) return;
+	RestoreLifecycleMaterials();
 
 	// Copy visual defaults, never spawn the remote player's locally controlled pawn class.
 	if (UClass* CharacterClass = LoadClass<ACharacter>(nullptr, *Registration.CharacterClassPath))
@@ -77,6 +78,7 @@ void ASAEnemyCharacter::InitializeRemotePlayer(const FSAPlayerRegistration& Regi
 	GetMesh()->SetSkeletalMeshAsset(RemoteMesh);
 	GetMesh()->SetAnimationMode(EAnimationMode::AnimationBlueprint);
 	GetMesh()->SetAnimInstanceClass(AnimClass);
+	RefreshLifecycleMaterials();
 	bAppearanceInitialized = RemoteMesh != nullptr && AnimClass != nullptr;
 	if (!bAppearanceInitialized)
 		UE_LOG(LogSAEnemy, Warning, TEXT("Remote player %s has missing mesh/animation assets: %s, %s"),
@@ -91,6 +93,8 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	// Equipment must be installed before choosing the received attack's montage.
 	ApplyWeaponState(State);
 	ApplyStatusState(State);
+	if (State.bHasLifecycleState) ApplyNetworkLifecycle(State.CharacterState, State.LifecycleVisibility);
+	else if (GetCharacterState() == ECharacterState::Spawning) SetCharacterState(ECharacterState::Idle);
 	NetworkState = State;
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
@@ -115,9 +119,7 @@ void ASAEnemyCharacter::ApplyStatusState(const FSAPlayerNetworkState& State)
 	Status->Defense = FMath::Max(0.0f, State.Defense);
 	if (Status->HP <= 0.0f && GetCharacterState() != ECharacterState::Dead)
 	{
-		SetCharacterState(ECharacterState::Dead);
-		if (USABaseAnimInstance* Anim = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance()))
-			Anim->PlayDeadAnim(FMath::Max(0.0f, PreviousHP - Status->HP));
+		SetCharacterState(ECharacterState::Dead, FMath::Max(0.0f, PreviousHP - Status->HP));
 	}
 	else if (Status->HP > 0.0f && GetCharacterState() == ECharacterState::Dead)
 	{

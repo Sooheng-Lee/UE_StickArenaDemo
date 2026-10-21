@@ -35,6 +35,7 @@ void ASACRWeapon::OnHitBeginOverlap(UPrimitiveComponent* OverlappedComponent, AA
 	if (!IsValid(Attacker) || Attacker->GetWeapon() != this
 		|| Attacker->GetCharacterState() == ECharacterState::Damaged
 		|| Attacker->GetCharacterState() == ECharacterState::Dead
+		|| Attacker->GetCharacterState() == ECharacterState::Spawning
 		|| HitComponent->GetCollisionEnabled() == ECollisionEnabled::NoCollision
 		|| !IsValid(OtherActor) || OtherActor == this || OtherActor == Attacker
 		|| HitActors.Contains(TWeakObjectPtr<AActor>(OtherActor))) return;

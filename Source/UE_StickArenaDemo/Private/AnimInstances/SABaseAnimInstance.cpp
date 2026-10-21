@@ -9,6 +9,7 @@
 #include "DrawDebugHelpers.h"
 #include "Items/SACRWeapon.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Animation/AnimMontage.h"
 void USABaseAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
@@ -65,14 +66,29 @@ void USABaseAnimInstance::PlayDamageAnim(float Damage)
 
 void USABaseAnimInstance::PlayDeadAnim(float Damage)
 {
+	if (!IsValid(OwningCharacter)) return;
 	CumulativeDamage += Damage;
 	const bool bStrongDamage = CumulativeDamage >= 30.0f;
 
 	if (DeadMontage)
 	{
-		Montage_Play(DeadMontage);
-		Montage_JumpToSection(bStrongDamage ? FName("StrongDead") : FName("WeakDead"), DeadMontage);
+		const float Duration = Montage_Play(DeadMontage);
+		const FName Section = bStrongDamage ? FName("StrongDead") : FName("WeakDead");
+		Montage_JumpToSection(Section, DeadMontage);
+		Montage_SetNextSection(Section, NAME_None, DeadMontage);
+		if (Duration > 0.0f)
+		{
+			FOnMontageEnded Ended;
+			Ended.BindUObject(OwningCharacter, &ASABaseCharacter::HandleDeathMontageEnded);
+			Montage_SetEndDelegate(Ended, DeadMontage);
+			const int32 SectionIndex = DeadMontage->GetSectionIndex(Section);
+			const float SectionLength = SectionIndex != INDEX_NONE ? DeadMontage->GetSectionLength(SectionIndex) : DeadMontage->GetPlayLength();
+			const float PlayRate = FMath::Max(0.01f, FMath::Abs(Montage_GetPlayRate(DeadMontage) * DeadMontage->RateScale));
+			OwningCharacter->WaitForDeathAnimation(SectionLength / PlayRate);
+		}
+		else OwningCharacter->BeginDeathDissolve();
 	}
+	else OwningCharacter->BeginDeathDissolve();
 
 	const FVector Backward = -OwningCharacter->GetActorForwardVector().GetSafeNormal2D();
 	const float KnockbackStrength = bStrongDamage ? StrongKnockbackStrength : WeakKnockbackStrength;
@@ -150,14 +166,16 @@ void USABaseAnimInstance::SetAttackEnabled()
 			Weapon->DeactivateHitCollision();
 		}
 	}
-	OwningCharacter->SetCharacterState(ECharacterState::Idle);
+	if (IsValid(OwningCharacter) && OwningCharacter->GetCharacterState() == ECharacterState::Attack)
+		OwningCharacter->SetCharacterState(ECharacterState::Idle);
 }
 
 void USABaseAnimInstance::DetectPunchAttack()
 {
 	if (!IsValid(OwningCharacter) || !GetWorld()) return;
 	if (OwningCharacter->GetCharacterState() == ECharacterState::Damaged
-		|| OwningCharacter->GetCharacterState() == ECharacterState::Dead) return;
+		|| OwningCharacter->GetCharacterState() == ECharacterState::Dead
+		|| OwningCharacter->GetCharacterState() == ECharacterState::Spawning) return;
 	const FVector Forward = OwningCharacter->GetActorForwardVector();
 	const FVector Start = OwningCharacter->GetActorLocation() + Forward * 5.0f;
 	const FVector End = Start + Forward * 50.0f;

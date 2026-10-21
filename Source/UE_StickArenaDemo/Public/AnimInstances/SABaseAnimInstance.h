@@ -18,6 +18,7 @@ public:
 	void PlayAttackMontage(EWeaponType WeaponType);
 	void PlayDamageAnim(float Damage);
 	void PlayDeadAnim(float Damage);
+	void ResetDamageAccumulator() { CumulativeDamage = 0.0f; }
 	
 protected:
 	UFUNCTION()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "../UE_StickArenaDemo.h"
 #include "SAPlayerNetworkState.generated.h"
 
 UENUM(BlueprintType)
@@ -59,6 +60,12 @@ struct UE_STICKARENADEMO_API FSAPlayerNetworkState
 	float DefaultDamage = 5.0f;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	float Defense = 2.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	bool bHasLifecycleState = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	ECharacterState CharacterState = ECharacterState::Idle;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	float LifecycleVisibility = 1.0f;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FSAOnRemotePlayerState, const FSAPlayerNetworkState&, PlayerState);

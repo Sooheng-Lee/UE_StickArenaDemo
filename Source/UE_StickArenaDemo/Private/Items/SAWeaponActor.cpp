@@ -11,6 +11,7 @@ void ASAWeaponActor::OwnItem(AActor* NewOwner)
 {
 	ASABaseCharacter* Character = Cast<ASABaseCharacter>(NewOwner);
 	if (!Character || Character->IsNetworkProxy()) return;
+	if (Character->GetCharacterState() == ECharacterState::Spawning || Character->GetCharacterState() == ECharacterState::Dead) return;
 	if (!TreasureId.IsEmpty())
 	{
 		// Network drops are equipped only after the server confirms the winner.

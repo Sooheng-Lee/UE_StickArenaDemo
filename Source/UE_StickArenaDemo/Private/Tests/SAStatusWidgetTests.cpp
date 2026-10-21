@@ -46,6 +46,8 @@ bool FSADefenseTest::RunTest(const FString& Parameters)
 	FSAStatusTestWorld TestWorld;
 	ASABaseCharacter* Attacker = TestWorld.World->SpawnActor<ASABaseCharacter>();
 	ASABaseCharacter* Defender = TestWorld.World->SpawnActor<ASABaseCharacter>();
+	Attacker->SetCharacterState(ECharacterState::Idle);
+	Defender->SetCharacterState(ECharacterState::Idle);
 	USAStatusComponent* Status = Defender->GetStatusComponent();
 	TestEqual(TEXT("Default defense is two"), Status->Defense, 2.0f);
 	Defender->TakeDamage(Attacker);

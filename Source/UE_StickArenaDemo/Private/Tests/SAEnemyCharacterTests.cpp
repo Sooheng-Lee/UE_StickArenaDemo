@@ -34,6 +34,8 @@ namespace
 		TArray<TStrongObjectPtr<USAUdpClientGameInstance>> Connections;
 		void Connect(USAUdpClientComponent* Client, int32 Port)
 		{
+			// Network feature tests start after the appearance animation; lifecycle tests opt back in.
+			if (ASABaseCharacter* Owner = Cast<ASABaseCharacter>(Client->GetOwner())) Owner->SetCharacterState(ECharacterState::Idle);
 			USAUdpClientGameInstance* Connection = NewObject<USAUdpClientGameInstance>(GEngine);
 			Connections.Emplace(Connection);
 			Connection->ConnectToServer(TEXT("127.0.0.1"), Port);
@@ -367,7 +369,31 @@ bool FSAHealthReplicationTest::RunTest(const FString& Parameters)
 		ASAEnemyCharacter* LateRemote = Clients[2]->GetRemoteCharacter(OwnerId);
 		return LateRemote && LateRemote->GetStatusComponent()->HP == 160.25f && LateRemote->GetStatusComponent()->MaxHP == 200.0f;
 	}));
+	Owner->BeginSpawning();
+	Owner->Tick(0.8f);
+	TestTrue(TEXT("Spawn state and progress reach other clients"), Pump([&]
+	{
+		return Remote->GetCharacterState() == ECharacterState::Spawning
+			&& FMath::IsNearlyEqual(Remote->GetLifecycleVisibility(), 0.4f, 0.01f);
+	}));
+	const float ProtectedHP = Remote->GetStatusComponent()->HP;
+	Remote->TakeDamage(Observer);
+	TestEqual(TEXT("Remote spawning is invulnerable"), Remote->GetStatusComponent()->HP, ProtectedHP);
+	const int64 ProtectedAttackSequence = Clients[0]->GetConnection()->GetAttackSequence();
+	Clients[0]->SendAction(TEXT("ATTACK"));
+	TestEqual(TEXT("Spawn cannot emit a network attack"), Clients[0]->GetConnection()->GetAttackSequence(), ProtectedAttackSequence);
+	SpawnPlayer();
+	TestTrue(TEXT("Late join restores spawning progress"), Pump([&]
+	{
+		ASAEnemyCharacter* LateSpawn = Clients[3]->GetRemoteCharacter(OwnerId);
+		return LateSpawn && LateSpawn->GetCharacterState() == ECharacterState::Spawning
+			&& FMath::IsNearlyEqual(LateSpawn->GetLifecycleVisibility(), 0.4f, 0.01f);
+	}));
+	Owner->Tick(2.0f);
+	TestTrue(TEXT("Spawn completion reaches other clients"), Pump([&] { return Remote->GetCharacterState() == ECharacterState::Idle; }));
 	Status->HP = 0;
+	Owner->SetCharacterState(ECharacterState::Dead);
+	Owner->Tick(1.5f);
 	TestTrue(TEXT("Death synchronized across clients"), Pump([&]
 	{
 		const ASAEnemyCharacter* LateRemote = Clients[2]->GetRemoteCharacter(OwnerId);
@@ -377,13 +403,18 @@ bool FSAHealthReplicationTest::RunTest(const FString& Parameters)
 	Remote->RestoreFromDamaged();
 	TestEqual(TEXT("Damage recovery cannot revive a dead proxy"), Remote->GetCharacterState(), ECharacterState::Dead);
 	const FSAPlayerNetworkState DeadState = Remote->NetworkState;
-	Status->HP = 100;
+	Owner->Respawn();
+	TestTrue(TEXT("Owner respawn appearance reaches remote proxy"), Pump([&]
+	{
+		return Remote->GetStatusComponent()->HP == 200.0f && Remote->GetCharacterState() == ECharacterState::Spawning;
+	}));
+	Owner->Tick(2.0f);
 	TestTrue(TEXT("Owner respawn restores proxy health and state"), Pump([&]
 	{
-		return Remote->GetStatusComponent()->HP == 100.0f && Remote->GetCharacterState() == ECharacterState::Idle;
+		return Remote->GetStatusComponent()->HP == 200.0f && Remote->GetCharacterState() == ECharacterState::Idle;
 	}));
 	Remote->ApplyNetworkState(DeadState);
-	TestEqual(TEXT("Delayed death snapshot cannot undo respawn"), Remote->GetStatusComponent()->HP, 100.0f);
+	TestEqual(TEXT("Delayed death snapshot cannot undo respawn"), Remote->GetStatusComponent()->HP, 200.0f);
 	return true;
 }
 

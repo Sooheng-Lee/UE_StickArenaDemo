@@ -21,6 +21,7 @@ public:
 	virtual void ApplyDamageKnockback(const FVector& VelocityChange) override;
 	virtual bool IsNetworkProxy() const override { return true; }
 	virtual bool HasSynchronizedHealth() const override { return bHasSynchronizedHealth; }
+	virtual bool CanRespawnLocally() const override { return !bHasNetworkState; }
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category="Remote Player")
 	FSAPlayerRegistration PlayerRegistration;
