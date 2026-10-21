@@ -95,8 +95,12 @@ void ASAPlayerCharacter::UpdateMovementState()
 	{
 		StopMovementInput(FInputActionValue());
 		ConsumeMovementInputVector();
-		MovementComponent->StopMovementImmediately();
-		MovementComponent->ClearAccumulatedForces();
+		// Damage/death lock player input, but must preserve hit impulses for movement and UDP snapshots.
+		if (bPauseMenuOpen || bQuitting || (UdpClient && UdpClient->IsMatchExpired()))
+		{
+			MovementComponent->StopMovementImmediately();
+			MovementComponent->ClearAccumulatedForces();
+		}
 	}
 }
 

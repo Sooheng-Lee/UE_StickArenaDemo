@@ -21,6 +21,8 @@ public:
 	USAUdpClientGameInstance* GetConnection() const { return NetworkGameInstance; }
 	void SendAction(const TCHAR* Action, const FVector& Input = FVector::ZeroVector);
 	void SetMovementInput(const FVector& Input);
+	// Sample the new transform after CharacterMovement has applied a pending impulse.
+	void RequestStateUpdate() { bStateUpdateRequested = true; }
 	UFUNCTION(BlueprintPure, Category="Match")
 	float GetMatchRemainingSeconds() const;
 	UFUNCTION(BlueprintPure, Category="Match")
@@ -108,4 +110,5 @@ private:
 	FString SessionId;
 	FVector MovementInput = FVector::ZeroVector;
 	float Elapsed = 0.0f;
+	bool bStateUpdateRequested = false;
 };

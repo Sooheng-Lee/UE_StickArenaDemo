@@ -6,6 +6,8 @@
 #include "Components/SAPlayerNetworkState.h"
 #include "SAEnemyCharacter.generated.h"
 
+class UWidgetComponent;
+
 // A visual proxy driven exclusively by the standalone server's player snapshots.
 UCLASS()
 class UE_STICKARENADEMO_API ASAEnemyCharacter : public ASABaseCharacter
@@ -31,6 +33,14 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void OnDamageReceived() override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="UI|Health")
+	TObjectPtr<UWidgetComponent> HealthBarComponent;
+	UPROPERTY(EditDefaultsOnly, Category="UI|Health", meta=(ClampMin="0.0"))
+	float HealthBarDisplayDuration = 2.0f;
+	UPROPERTY(EditDefaultsOnly, Category="UI|Health")
+	float HealthBarHeightOffset = 30.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Remote Player", meta=(ClampMin="0.0"))
 	float NetworkInterpSpeed = 15.0f;
@@ -42,6 +52,9 @@ protected:
 	float KnockbackDeceleration = 1400.0f;
 
 private:
+	void UpdateHealthBar(float DeltaSeconds);
+	float HealthBarTimeRemaining = 0.0f;
+	float LastObservedHP = 0.0f;
 	void ApplyWeaponState(const FSAPlayerNetworkState& State);
 	void ApplyStatusState(const FSAPlayerNetworkState& State);
 	bool bHasSynchronizedHealth = false;
@@ -49,5 +62,4 @@ private:
 	bool bAppearanceInitialized = false;
 	double LastStateTime = 0.0;
 	FVector KnockbackVelocity = FVector::ZeroVector;
-	FVector KnockbackOffset = FVector::ZeroVector;
 };

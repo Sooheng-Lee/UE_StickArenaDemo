@@ -104,6 +104,42 @@ namespace
 	};
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSACharacterCapsuleTest, "StickArena.Characters.CapsuleCollision",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSACharacterCapsuleTest::RunTest(const FString& Parameters)
+{
+	FSAReplicationTestWorld TestWorld;
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ASAPlayerCharacter* Player = TestWorld.World->SpawnActor<ASAPlayerCharacter>(
+		FVector::ZeroVector, FRotator::ZeroRotator, SpawnParameters);
+	ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>(
+		FVector(1000, 0, 0), FRotator::ZeroRotator, SpawnParameters);
+	if (!TestNotNull(TEXT("Player spawned"), Player) || !TestNotNull(TEXT("Enemy spawned"), Enemy)) return false;
+	const UCapsuleComponent* PlayerCapsule = Player->GetCapsuleComponent();
+	const auto CheckCapsule = [this, PlayerCapsule](const UCapsuleComponent* Capsule)
+	{
+		TestEqual(TEXT("Capsule half height"), Capsule->GetUnscaledCapsuleHalfHeight(), 88.0f);
+		TestEqual(TEXT("Capsule radius"), Capsule->GetUnscaledCapsuleRadius(), 34.0f);
+		TestEqual(TEXT("Same collision profile as player"), Capsule->GetCollisionProfileName(), PlayerCapsule->GetCollisionProfileName());
+		TestEqual(TEXT("Same collision mode as player"), Capsule->GetCollisionEnabled(), PlayerCapsule->GetCollisionEnabled());
+		TestEqual(TEXT("Same object type as player"), Capsule->GetCollisionObjectType(), PlayerCapsule->GetCollisionObjectType());
+		TestTrue(TEXT("Same channel responses as player"), Capsule->GetCollisionResponseToChannels() == PlayerCapsule->GetCollisionResponseToChannels());
+		TestEqual(TEXT("Same overlap generation as player"), Capsule->GetGenerateOverlapEvents(), PlayerCapsule->GetGenerateOverlapEvents());
+	};
+	TestEqual(TEXT("Player uses Pawn profile"), PlayerCapsule->GetCollisionProfileName(), FName(TEXT("Pawn")));
+	CheckCapsule(PlayerCapsule);
+	CheckCapsule(Enemy->GetCapsuleComponent());
+	Enemy->InitializeRemotePlayer(TestRegistration());
+	CheckCapsule(Enemy->GetCapsuleComponent());
+	Enemy->GetCapsuleComponent()->SetCapsuleSize(50.0f, 120.0f);
+	Enemy->GetCapsuleComponent()->SetCollisionProfileName(TEXT("NoCollision"));
+	Enemy->OnConstruction(Enemy->GetActorTransform());
+	CheckCapsule(Enemy->GetCapsuleComponent());
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAEnemyCharacterTest, "StickArena.Networking.EnemyCharacter",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -166,9 +202,13 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSADamageKnockbackTest, "StickArena.Combat.Dama
 bool FSADamageKnockbackTest::RunTest(const FString& Parameters)
 {
 	FSAReplicationTestWorld TestWorld;
+	int32 SpawnIndex = 0;
 	const auto SpawnEnemy = [&]()
 	{
-		ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>();
+		FActorSpawnParameters SpawnParameters;
+		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>(
+			FVector(0, 1000.0f * SpawnIndex++, 100), FRotator::ZeroRotator, SpawnParameters);
 		Enemy->InitializeRemotePlayer(TestRegistration());
 		Enemy->SetActorRotation(FRotator::ZeroRotator);
 		Enemy->SetCharacterState(ECharacterState::Damaged);
@@ -180,10 +220,12 @@ bool FSADamageKnockbackTest::RunTest(const FString& Parameters)
 	USABaseAnimInstance* StrongAnim = Cast<USABaseAnimInstance>(Strong->GetMesh()->GetAnimInstance());
 	if (!TestNotNull(TEXT("Weak animation instance"), WeakAnim)
 		|| !TestNotNull(TEXT("Strong animation instance"), StrongAnim)) return false;
-	WeakAnim->PlayDamageAnim(14.0f);
-	StrongAnim->PlayDamageAnim(15.0f);
-	TestTrue(TEXT("Below 15 applies weak backward velocity"), Weak->GetVelocity().Equals(FVector(-250, 0, 0)));
-	TestTrue(TEXT("Exactly 15 applies strong backward velocity"), Strong->GetVelocity().Equals(FVector(-850, 0, 0)));
+	const float WeakStrength = FindFProperty<FFloatProperty>(USABaseAnimInstance::StaticClass(), TEXT("WeakKnockbackStrength"))->GetPropertyValue_InContainer(WeakAnim);
+	const float StrongStrength = FindFProperty<FFloatProperty>(USABaseAnimInstance::StaticClass(), TEXT("StrongKnockbackStrength"))->GetPropertyValue_InContainer(StrongAnim);
+	WeakAnim->PlayDamageAnim(29.0f);
+	StrongAnim->PlayDamageAnim(30.0f);
+	TestTrue(TEXT("Below 30 applies weak backward velocity"), Weak->GetVelocity().Equals(FVector(-WeakStrength, 0, 0)));
+	TestTrue(TEXT("Exactly 30 applies strong backward velocity"), Strong->GetVelocity().Equals(FVector(-StrongStrength, 0, 0)));
 	const FVector WeakStart = Weak->GetActorLocation();
 	const FVector StrongStart = Strong->GetActorLocation();
 	for (int32 Frame = 0; Frame < 60; ++Frame)
@@ -194,10 +236,10 @@ bool FSADamageKnockbackTest::RunTest(const FString& Parameters)
 	const float WeakDistance = WeakStart.X - Weak->GetActorLocation().X;
 	const float StrongDistance = StrongStart.X - Strong->GetActorLocation().X;
 	TestTrue(TEXT("Placed enemy actually moves backward"), WeakDistance > 20.0f);
-	TestTrue(TEXT("Strong hit travels substantially farther"), StrongDistance > WeakDistance * 5.0f);
+	TestTrue(TEXT("Strong hit travels substantially farther"), StrongDistance > WeakDistance * 2.0f);
 	TestTrue(TEXT("Friction stops knockback"), Strong->GetVelocity().IsNearlyZero());
 	WeakAnim->PlayDamageAnim(1.0f);
-	TestTrue(TEXT("Accumulated 14 + 1 selects strong response"), Weak->GetVelocity().Equals(FVector(-850, 0, 0)));
+	TestTrue(TEXT("Accumulated 29 + 1 selects strong response"), Weak->GetVelocity().Equals(FVector(-StrongStrength, 0, 0)));
 
 	ASAEnemyCharacter* Remote = SpawnEnemy();
 	FSAPlayerNetworkState State;
@@ -205,18 +247,50 @@ bool FSADamageKnockbackTest::RunTest(const FString& Parameters)
 	State.Position = FVector(1000, 0, 100);
 	State.Sequence = 1;
 	Remote->ApplyNetworkState(State);
-	CastChecked<USABaseAnimInstance>(Remote->GetMesh()->GetAnimInstance())->PlayDamageAnim(15.0f);
-	for (int32 Frame = 0; Frame < 60; ++Frame)
+	CastChecked<USABaseAnimInstance>(Remote->GetMesh()->GetAnimInstance())->PlayDamageAnim(30.0f);
+	Remote->Tick(1.0f / 60.0f);
+	TestTrue(TEXT("Network proxy does not add a second physical impulse"), Remote->GetActorLocation().Equals(State.Position));
+	TestTrue(TEXT("Network velocity excludes local hit prediction"), Remote->GetVelocity().IsNearlyZero());
+	State.bHasLifecycleState = true;
+	State.CharacterState = ECharacterState::Damaged;
+	State.LifecycleVisibility = 1.0f;
+	State.Velocity = FVector(-250, 0, 0);
+	for (int32 Packet = 0; Packet < 6; ++Packet)
 	{
 		++State.Sequence;
+		State.Position.X -= 25.0f;
+		const FVector BeforePacket = Remote->GetActorLocation();
 		Remote->ApplyNetworkState(State);
-		Remote->Tick(1.0f / 60.0f);
+		TestTrue(TEXT("Normal knockback packet does not teleport the proxy"), Remote->GetActorLocation().Equals(BeforePacket));
+		TestTrue(TEXT("Proxy uses the authoritative impulse velocity once"), Remote->GetVelocity().Equals(State.Velocity));
+		for (int32 Frame = 0; Frame < 6; ++Frame)
+		{
+			const float PreviousX = Remote->GetActorLocation().X;
+			Remote->Tick(1.0f / 60.0f);
+			TestTrue(TEXT("Authoritative knockback advances without a forward correction"), Remote->GetActorLocation().X <= PreviousX + 0.01f);
+		}
 	}
-	TestTrue(TEXT("Repeated snapshots preserve local knockback"), State.Position.X - Remote->GetActorLocation().X > 250.0f);
 	TestFalse(TEXT("Network movement simulation stays disabled"), Remote->GetCharacterMovement()->IsComponentTickEnabled());
-	Remote->SetCharacterState(ECharacterState::Idle);
-	for (int32 Frame = 0; Frame < 120; ++Frame) Remote->Tick(1.0f / 60.0f);
-	TestTrue(TEXT("Recovered proxy smoothly returns to server position"), Remote->GetActorLocation().Equals(State.Position, 0.2f));
+	++State.Sequence;
+	State.Velocity = FVector::ZeroVector;
+	State.CharacterState = ECharacterState::Idle;
+	const FVector BeforeRecovery = Remote->GetActorLocation();
+	Remote->ApplyNetworkState(State);
+	TestTrue(TEXT("Leaving damage state does not reset the position"), Remote->GetActorLocation().Equals(BeforeRecovery));
+	for (int32 Frame = 0; Frame < 120; ++Frame)
+	{
+		Remote->Tick(1.0f / 60.0f);
+		TestTrue(TEXT("Recovery cannot pull the proxy back to its pre-hit position"), Remote->GetActorLocation().X <= BeforeRecovery.X + 0.01f);
+	}
+	TestTrue(TEXT("Recovered proxy remains at the final knockback position"), Remote->GetActorLocation().Equals(State.Position, 0.2f));
+	const FVector SettledPosition = Remote->GetActorLocation();
+	FSAPlayerNetworkState StaleState = State;
+	--StaleState.Sequence;
+	StaleState.Position.X += 150.0f;
+	Remote->ApplyNetworkState(StaleState);
+	Remote->ApplyDamageKnockback(FVector(-500, 0, 0));
+	Remote->Tick(1.0f / 60.0f);
+	TestTrue(TEXT("Stale snapshots and later local hit reactions cannot move a settled proxy"), Remote->GetActorLocation().Equals(SettledPosition, 0.2f));
 	return true;
 }
 
@@ -282,6 +356,44 @@ bool FSAEnemyUdpReceiveTest::RunTest(const FString& Parameters)
 	Server.Send(Packet, *ClientAddress);
 	TestWorld.Tick(Client);
 	TestEqual(TEXT("Stale legacy packet cannot reset health"), Enemy->GetStatusComponent()->HP, 37.5f);
+
+	// A player hit with no movement input must still move and publish the resulting transform.
+	uint32 PendingKnockbackPacket = 0;
+	while (Server.Socket->HasPendingData(PendingKnockbackPacket))
+		Server.Socket->RecvFrom(Buffer, sizeof(Buffer), Received, *ClientAddress);
+	Player->SetCharacterState(ECharacterState::Damaged);
+	UCharacterMovementComponent* Movement = Player->GetCharacterMovement();
+	Movement->SetMovementMode(MOVE_Flying); // Isolate the impulse from gravity/ground collision.
+	const FVector BeforeKnockback = Player->GetActorLocation();
+	Player->ApplyDamageKnockback(FVector(-250, 0, 0));
+	Player->Tick(0.016f);
+	Movement->TickComponent(0.016f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("Damage input lock preserves AddImpulse movement"), Player->GetActorLocation().X < BeforeKnockback.X);
+	TestTrue(TEXT("Knockback retains backward velocity"), Player->GetVelocity().X < 0.0f);
+	Player->Tick(0.016f);
+	TestTrue(TEXT("Next player tick preserves knockback velocity"), Player->GetVelocity().X < 0.0f);
+	Client->TickComponent(0.001f, LEVELTICK_All, nullptr); // Less than the regular send interval.
+	Server.Socket->Wait(ESocketWaitConditions::WaitForRead, FTimespan::FromSeconds(1));
+	bool bReceivedKnockbackState = false;
+	const FVector KnockbackPosition = Player->GetActorLocation();
+	const FVector KnockbackVelocity = Player->GetVelocity();
+	const FString ExpectedPosition = FString::Printf(TEXT("|pos=%.6f,%.6f,%.6f|"),
+		KnockbackPosition.X, KnockbackPosition.Y, KnockbackPosition.Z);
+	const FString ExpectedVelocity = FString::Printf(TEXT("|vel=%.6f,%.6f,%.6f|"),
+		KnockbackVelocity.X, KnockbackVelocity.Y, KnockbackVelocity.Z);
+	while (Server.Socket->HasPendingData(PendingKnockbackPacket))
+	{
+		if (!Server.Socket->RecvFrom(Buffer, sizeof(Buffer) - 1, Received, *ClientAddress)) break;
+		Buffer[Received] = 0;
+		const FString SentPacket(UTF8_TO_TCHAR(reinterpret_cast<const char*>(Buffer)));
+		if (!SentPacket.StartsWith(TEXT("SA3|type=PLAYER_STATE|"))) continue;
+		bReceivedKnockbackState = true;
+		TestTrue(TEXT("Server receives position after impulse movement"), SentPacket.Contains(ExpectedPosition));
+		TestTrue(TEXT("Server receives impulse velocity"), SentPacket.Contains(ExpectedVelocity));
+		TestTrue(TEXT("No-input knockback is published as moving"), SentPacket.Contains(TEXT("|state=MOVING|input=0.000000,0.000000,0.000000|")));
+		TestTrue(TEXT("Damage state is included"), SentPacket.Contains(TEXT("|character=DAMAGED|")));
+	}
+	TestTrue(TEXT("Knockback requests a packet before the regular interval"), bReceivedKnockbackState);
 	USAUdpClientGameInstance* Connection = Client->GetConnection();
 	Player->Destroy();
 	TestTrue(TEXT("Remote actors destroyed with local session"), Enemy->IsActorBeingDestroyed());

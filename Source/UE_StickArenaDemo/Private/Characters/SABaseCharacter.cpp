@@ -3,6 +3,7 @@
 
 #include "Characters/SABaseCharacter.h"
 #include "Components/SAStatusComponent.h"
+#include "Components/SAUdpClientComponent.h"
 #include "AnimInstances/SABaseAnimInstance.h"
 #include "TimerManager.h"
 #include "Items/SACRWeapon.h"
@@ -11,6 +12,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 #include "GameModes/SAGameModeBase.h"
@@ -20,6 +22,7 @@ ASABaseCharacter::ASABaseCharacter()
  	// Set this character to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+	ConfigureCharacterCapsule();
 	StatusComponent = CreateDefaultSubobject<USAStatusComponent>(TEXT("StatusComponent"));
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> SpawnMaterial(
 		TEXT("/Game/PlayerCharacters/Materials/MI_CharacterSpawn.MI_CharacterSpawn"));
@@ -27,6 +30,20 @@ ASABaseCharacter::ASABaseCharacter()
 
 }
 
+
+void ASABaseCharacter::ConfigureCharacterCapsule()
+{
+	// Shared by players and enemies, including existing Blueprint instances.
+	GetCapsuleComponent()->SetCapsuleSize(34.0f, 88.0f);
+	GetCapsuleComponent()->SetCollisionProfileName(UCollisionProfile::Pawn_ProfileName);
+	GetCapsuleComponent()->SetGenerateOverlapEvents(true);
+}
+
+void ASABaseCharacter::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	ConfigureCharacterCapsule();
+}
 
 void ASABaseCharacter::SetWeaponType(EWeaponType Type)
 {
@@ -36,6 +53,7 @@ void ASABaseCharacter::SetWeaponType(EWeaponType Type)
 void ASABaseCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	ConfigureCharacterCapsule();
 	AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());
 	SavedCollision = GetCapsuleComponent()->GetCollisionEnabled();
 	BeginSpawning();
@@ -242,6 +260,8 @@ void ASABaseCharacter::Attack()
 void ASABaseCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
 {
 	GetCharacterMovement()->AddImpulse(VelocityChange, true);
+	if (USAUdpClientComponent* Client = FindComponentByClass<USAUdpClientComponent>())
+		Client->RequestStateUpdate();
 }
 
 void ASABaseCharacter::RestoreFromDamaged()
@@ -286,6 +306,7 @@ void ASABaseCharacter::TakeDamage(AActor* Attacker, UNiagaraSystem* DamagedEffec
 			// A remote proxy may predict a hit reaction, but only its owning client changes HP.
 			if (!HasSynchronizedHealth())
 				StatusComponent->HP = FMath::Max(0.0f, StatusComponent->HP - AppliedDamage);
+			OnDamageReceived();
 			if (StatusComponent->HP > 0) {
 				SetCharacterState(ECharacterState::Damaged);
 				AnimInstance = Cast<USABaseAnimInstance>(GetMesh()->GetAnimInstance());

@@ -6,7 +6,9 @@
 #include "LevelObjects/SALevelObject.h"
 #include "LevelObjects/SATreasureBox.h"
 #include "SADebugHelper.h"
+#if WITH_EDITOR
 #include "DrawDebugHelpers.h"
+#endif
 #include "Items/SACRWeapon.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimMontage.h"
@@ -194,12 +196,17 @@ void USABaseAnimInstance::DetectPunchAttack()
 	);
 	SADebugHelper::Print(TEXT("Sweep Test"), FColor::Blue);
 
+#if WITH_EDITOR
+	if (SADebugHelper::IsEnabled())
+	{
+		DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, 50.0f, 20.0f,
+			FRotationMatrix::MakeFromZ(Forward).ToQuat(), HitResults.IsEmpty() ? FColor::Red : FColor::Green, false, 2.0f);
+	}
+#endif
 	if (HitResults.Num() == 0)
 	{
-		DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, 50.f, 20.0f, FRotationMatrix::MakeFromZ(Forward).ToQuat(), FColor::Red, false, 2.0f);
 		return;
 	}
-	DrawDebugCapsule(GetWorld(), (Start + End) * 0.5f, 50.0f, 20.0f, FRotationMatrix::MakeFromZ(Forward).ToQuat(), FColor::Green, false, 2.0f);
 	TSet<ASALevelObject*> HitObjects;
 	TSet<ASABaseCharacter*> HitCharacters;
 	for (const FHitResult& HitResult : HitResults)
@@ -221,7 +228,12 @@ void USABaseAnimInstance::DetectPunchAttack()
 				LevelObject->RequestHit(OwningCharacter);
 			}
 		}
-		const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *GetNameSafe(HitResult.GetActor()));
-		SADebugHelper::Print(DebugMsg, FColor::Blue);
+#if WITH_EDITOR
+		if (SADebugHelper::IsEnabled())
+		{
+			const FString DebugMsg = FString::Printf(TEXT("Hit Actor : %s"), *GetNameSafe(HitResult.GetActor()));
+			SADebugHelper::Print(DebugMsg, FColor::Blue);
+		}
+#endif
 	}
 }

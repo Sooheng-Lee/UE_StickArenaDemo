@@ -9,6 +9,8 @@
 #include "Items/SAWeaponActor.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Components/WidgetComponent.h"
+#include "Widget/SAHealthBarWidget.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSAEnemy, Log, All);
 
@@ -16,6 +18,15 @@ ASAEnemyCharacter::ASAEnemyCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = true;
+	HealthBarComponent = CreateDefaultSubobject<UWidgetComponent>(TEXT("HealthBarComponent"));
+	HealthBarComponent->SetupAttachment(GetRootComponent());
+	HealthBarComponent->SetWidgetSpace(EWidgetSpace::Screen);
+	HealthBarComponent->SetWidgetClass(USAHealthBarWidget::StaticClass());
+	HealthBarComponent->SetDrawSize(FVector2D(110.0f, 12.0f));
+	HealthBarComponent->SetPivot(FVector2D(0.5f, 1.0f));
+	HealthBarComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HealthBarComponent->SetGenerateOverlapEvents(false);
+	HealthBarComponent->SetVisibility(false);
 	AutoPossessAI = EAutoPossessAI::Disabled;
 	AutoPossessPlayer = EAutoReceiveInput::Disabled;
 	bUseControllerRotationYaw = false;
@@ -27,11 +38,7 @@ ASAEnemyCharacter::ASAEnemyCharacter()
 	GetCharacterMovement()->PrimaryComponentTick.bStartWithTickEnabled = false;
 	GetCharacterMovement()->SetAutoActivate(false);
 	GetCharacterMovement()->bOrientRotationToMovement = false;
-	// Receive attack sweeps without adding local physics to the network proxy.
-	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-	GetCapsuleComponent()->SetCollisionObjectType(ECC_Pawn);
-	GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Ignore);
-	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	// Capsule size and collision use the same shared Pawn settings as the player.
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	GetMesh()->AddTickPrerequisiteActor(this);
@@ -45,8 +52,37 @@ ASAEnemyCharacter::ASAEnemyCharacter()
 void ASAEnemyCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	HealthBarComponent->InitWidget();
+	if (const USAStatusComponent* Status = GetStatusComponent())
+	{
+		LastObservedHP = Status->HP;
+		if (USAHealthBarWidget* Bar = Cast<USAHealthBarWidget>(HealthBarComponent->GetUserWidgetObject()))
+			Bar->UpdateHealth(Status->HP, Status->MaxHP, 0.0f, true);
+	}
 	// Component registration/activation can restore the movement tick after construction.
 	GetCharacterMovement()->SetComponentTickEnabled(false);
+}
+
+void ASAEnemyCharacter::OnDamageReceived()
+{
+	if (const USAStatusComponent* Status = GetStatusComponent()) LastObservedHP = Status->HP;
+	HealthBarTimeRemaining = HealthBarDisplayDuration;
+	HealthBarComponent->SetVisibility(HealthBarTimeRemaining > 0.0f && !IsHidden());
+}
+
+void ASAEnemyCharacter::UpdateHealthBar(float DeltaSeconds)
+{
+	const USAStatusComponent* Status = GetStatusComponent();
+	if (!Status) return;
+	HealthBarTimeRemaining = FMath::Max(0.0f, HealthBarTimeRemaining - FMath::Max(DeltaSeconds, 0.0f));
+	if (Status->HP < LastObservedHP) OnDamageReceived();
+	LastObservedHP = Status->HP;
+	HealthBarComponent->SetRelativeLocation(FVector(0, 0,
+		GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() + HealthBarHeightOffset));
+	HealthBarComponent->SetVisibility(HealthBarTimeRemaining > 0.0f && !IsHidden()
+		&& GetCharacterState() != ECharacterState::Spawning);
+	if (USAHealthBarWidget* Bar = Cast<USAHealthBarWidget>(HealthBarComponent->GetUserWidgetObject()))
+		Bar->UpdateHealth(Status->HP, Status->MaxHP, DeltaSeconds);
 }
 
 void ASAEnemyCharacter::InitializeRemotePlayer(const FSAPlayerRegistration& Registration)
@@ -64,8 +100,6 @@ void ASAEnemyCharacter::InitializeRemotePlayer(const FSAPlayerRegistration& Regi
 	{
 		const ACharacter* Defaults = CharacterClass->GetDefaultObject<ACharacter>();
 		GetMesh()->SetRelativeTransform(Defaults->GetMesh()->GetRelativeTransform());
-		GetCapsuleComponent()->SetCapsuleSize(Defaults->GetCapsuleComponent()->GetUnscaledCapsuleRadius(),
-			Defaults->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight());
 		GetMesh()->EmptyOverrideMaterials();
 		for (int32 Index = 0; Index < Defaults->GetMesh()->GetNumMaterials(); ++Index)
 			GetMesh()->SetMaterial(Index, Defaults->GetMesh()->GetMaterial(Index));
@@ -98,8 +132,10 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 	NetworkState = State;
 	LastStateTime = FPlatformTime::Seconds();
 	bHasNetworkState = true;
-	if (bFirstState || FVector::DistSquared(GetActorLocation() - KnockbackOffset, State.Position) > FMath::Square(TeleportDistance))
-		SetActorLocationAndRotation(State.Position + KnockbackOffset,
+	// The owning player's snapshots already contain AddImpulse movement. Never add it a second time.
+	KnockbackVelocity = FVector::ZeroVector;
+	if (bFirstState || FVector::DistSquared(GetActorLocation(), State.Position) > FMath::Square(TeleportDistance))
+		SetActorLocationAndRotation(State.Position,
 			GetCharacterState() == ECharacterState::Damaged ? GetActorRotation() : State.Rotation,
 			false, nullptr, ETeleportType::TeleportPhysics);
 	GetCharacterMovement()->SetMovementMode(State.State == ESAPlayerActivity::Falling ? MOVE_Falling : MOVE_Walking);
@@ -110,11 +146,19 @@ void ASAEnemyCharacter::ApplyNetworkState(const FSAPlayerNetworkState& State)
 void ASAEnemyCharacter::ApplyStatusState(const FSAPlayerNetworkState& State)
 {
 	if (!State.bHasStatusState || !GetStatusComponent()) return;
+	const bool bFirstHealthState = !bHasSynchronizedHealth;
 	bHasSynchronizedHealth = true;
 	USAStatusComponent* Status = GetStatusComponent();
 	const float PreviousHP = Status->HP;
 	Status->MaxHP = FMath::Max(0.0f, State.MaxHP);
 	Status->HP = FMath::Clamp(State.HP, 0.0f, Status->MaxHP);
+	if (!bFirstHealthState && Status->HP < PreviousHP) OnDamageReceived();
+	if (bFirstHealthState)
+	{
+		if (USAHealthBarWidget* Bar = Cast<USAHealthBarWidget>(HealthBarComponent->GetUserWidgetObject()))
+			Bar->UpdateHealth(Status->HP, Status->MaxHP, 0.0f, true);
+	}
+	LastObservedHP = Status->HP;
 	Status->DefaultDamage = FMath::Max(0.0f, State.DefaultDamage);
 	Status->Defense = FMath::Max(0.0f, State.Defense);
 	if (Status->HP <= 0.0f && GetCharacterState() != ECharacterState::Dead)
@@ -125,7 +169,6 @@ void ASAEnemyCharacter::ApplyStatusState(const FSAPlayerNetworkState& State)
 	{
 		if (UAnimInstance* Anim = GetMesh()->GetAnimInstance()) Anim->StopAllMontages(0.1f);
 		KnockbackVelocity = FVector::ZeroVector;
-		KnockbackOffset = FVector::ZeroVector;
 		SetCharacterState(ECharacterState::Idle);
 	}
 }
@@ -177,34 +220,29 @@ void ASAEnemyCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ASAEnemyCharacter::ApplyDamageKnockback(const FVector& VelocityChange)
 {
-	// Proxies never tick CharacterMovement; integrate the local hit response separately.
+	// Network proxies receive the owner's physical knockback through position/velocity snapshots.
+	// Only placed enemies without a network owner need a locally integrated impulse.
+	if (bHasNetworkState) return;
 	KnockbackVelocity += FVector(VelocityChange.X, VelocityChange.Y, 0.0f);
 }
 
 void ASAEnemyCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	UpdateHealthBar(DeltaSeconds);
 	const float Step = FMath::Max(DeltaSeconds, 0.0f);
-	const FVector PreviousOffset = KnockbackOffset;
-	const float Speed = KnockbackVelocity.Size();
-	if (Speed > UE_SMALL_NUMBER)
-	{
-		const float Deceleration = FMath::Max(KnockbackDeceleration, 1.0f);
-		const float MovingTime = FMath::Min(Step, Speed / Deceleration);
-		const FVector Direction = KnockbackVelocity / Speed;
-		KnockbackOffset += Direction * (Speed * MovingTime - 0.5f * Deceleration * MovingTime * MovingTime);
-		KnockbackVelocity = Direction * FMath::Max(0.0f, Speed - Deceleration * Step);
-	}
-	else if (GetCharacterState() != ECharacterState::Damaged && bHasNetworkState)
-	{
-		// Once recovered, blend back to the latest authoritative position.
-		KnockbackOffset *= FMath::Exp(-8.0f * Step);
-		if (KnockbackOffset.IsNearlyZero(0.1f)) KnockbackOffset = FVector::ZeroVector;
-	}
 	if (!bHasNetworkState)
 	{
 		// Placed test enemies have no server position to drive their movement.
-		AddActorWorldOffset(KnockbackOffset - PreviousOffset, true);
+		const float Speed = KnockbackVelocity.Size();
+		if (Speed > UE_SMALL_NUMBER)
+		{
+			const float Deceleration = FMath::Max(KnockbackDeceleration, 1.0f);
+			const float MovingTime = FMath::Min(Step, Speed / Deceleration);
+			const FVector Direction = KnockbackVelocity / Speed;
+			AddActorWorldOffset(Direction * (Speed * MovingTime - 0.5f * Deceleration * MovingTime * MovingTime), true);
+			KnockbackVelocity = Direction * FMath::Max(0.0f, Speed - Deceleration * Step);
+		}
 		return;
 	}
 	const double Age = FMath::Clamp(FPlatformTime::Seconds() - LastStateTime, 0.0, static_cast<double>(MaxExtrapolationTime));
@@ -212,12 +250,11 @@ void ASAEnemyCharacter::Tick(float DeltaSeconds)
 	const float Alpha = NetworkInterpSpeed > 0.0f ? 1.0f - FMath::Exp(-NetworkInterpSpeed * FMath::Max(DeltaSeconds, 0.0f)) : 1.0f;
 	const FQuat Rotation = GetCharacterState() == ECharacterState::Damaged
 		? GetActorQuat() : FQuat::Slerp(GetActorQuat(), NetworkState.Rotation.Quaternion(), Alpha);
-	const FVector BasePosition = GetActorLocation() - PreviousOffset;
-	SetActorLocationAndRotation(FMath::Lerp(BasePosition, Target, Alpha) + KnockbackOffset,
+	SetActorLocationAndRotation(FMath::Lerp(GetActorLocation(), Target, Alpha),
 		Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 }
 
 FVector ASAEnemyCharacter::GetVelocity() const
 {
-	return (bHasNetworkState ? NetworkState.Velocity : FVector::ZeroVector) + KnockbackVelocity;
+	return bHasNetworkState ? NetworkState.Velocity : KnockbackVelocity;
 }

@@ -9,6 +9,8 @@
 #include "Characters/SAPlayerCharacter.h"
 #include "Components/SAStatusComponent.h"
 #include "Components/ProgressBar.h"
+#include "Components/WidgetComponent.h"
+#include "Widget/SAHealthBarWidget.h"
 #include "Components/Image.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Components/TextBlock.h"
@@ -112,12 +114,90 @@ bool FSAPlayerWidgetTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Defense changes reach HUD"), Defense->GetText().ToString(), FString(TEXT("74")));
 	TestEqual(TEXT("Current and maximum health shown"), Health->GetText().ToString(), FString(TEXT("85 / 200")));
 	TestEqual(TEXT("Current and maximum ammo shown"), Ammo->GetText().ToString(), FString(TEXT("36 / 120")));
-	TestEqual(TEXT("Health bar ratio"), Bar->GetPercent(), 0.425f);
+	TestEqual(TEXT("Health change does not jump the bar"), Bar->GetPercent(), 1.0f);
+	Widget->UpdateHealthBar(0.05f);
+	TestTrue(TEXT("Health bar smoothly decreases"), Bar->GetPercent() > 0.425f && Bar->GetPercent() < 1.0f);
+	Widget->UpdateHealthBar(1.0f);
+	TestEqual(TEXT("Health bar reaches ratio"), Bar->GetPercent(), 0.425f);
+	Status->HP = 150;
+	Widget->RefreshStatus();
+	Widget->UpdateHealthBar(0.05f);
+	TestTrue(TEXT("Health bar smoothly increases"), Bar->GetPercent() > 0.425f && Bar->GetPercent() < 0.75f);
 	Status->MaxHP = 0;
 	Widget->RefreshStatus();
 	TestEqual(TEXT("Zero maximum health is safe"), Bar->GetPercent(), 0.0f);
 	Widget->SetStatusComponent(nullptr);
 	TestEqual(TEXT("Unbinding status clears health"), Health->GetText().ToString(), FString(TEXT("0 / 0")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAEnemyHealthBarTest, "StickArena.Status.EnemyHealthBar",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSAEnemyHealthBarTest::RunTest(const FString& Parameters)
+{
+	FSAStatusTestWorld TestWorld;
+	TestWorld.World->InitializeActorsForPlay(FURL());
+	TestWorld.World->BeginPlay();
+	TestWorld.World->GetWorldSettings()->NotifyBeginPlay();
+	ASABaseCharacter* Attacker = TestWorld.World->SpawnActor<ASABaseCharacter>();
+	ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>();
+	Attacker->SetCharacterState(ECharacterState::Idle);
+	Enemy->SetCharacterState(ECharacterState::Idle);
+	UWidgetComponent* Component = Enemy->FindComponentByClass<UWidgetComponent>();
+	if (!TestNotNull(TEXT("Overhead component exists"), Component)) return false;
+	TestEqual(TEXT("Bar faces the screen"), Component->GetWidgetSpace(), EWidgetSpace::Screen);
+	TestFalse(TEXT("Bar starts hidden"), Component->IsVisible());
+	Enemy->TakeDamage(nullptr);
+	TestFalse(TEXT("Invalid hit does not reveal bar"), Component->IsVisible());
+	Enemy->TakeDamage(Attacker);
+	TestTrue(TEXT("Hit immediately shows bar"), Component->IsVisible());
+	Enemy->Tick(1.0f);
+	Enemy->TakeDamage(Attacker);
+	Enemy->Tick(1.5f);
+	TestTrue(TEXT("Repeat hit extends display"), Component->IsVisible());
+	Enemy->Tick(0.51f);
+	TestFalse(TEXT("Bar hides two seconds after last hit"), Component->IsVisible());
+
+	FSAPlayerRegistration Registration;
+	Registration.PlayerId = TEXT("HealthBarTest");
+	Enemy->PlayerRegistration = Registration;
+	FSAPlayerNetworkState State;
+	State.PlayerId = Registration.PlayerId;
+	State.Sequence = 1;
+	State.bHasStatusState = true;
+	State.HP = 80;
+	State.MaxHP = 100;
+	Enemy->ApplyNetworkState(State);
+	TestFalse(TEXT("Initial network health does not count as damage"), Component->IsVisible());
+	State.Sequence++;
+	State.HP = 60;
+	Enemy->ApplyNetworkState(State);
+	TestTrue(TEXT("Authoritative damage shows bar"), Component->IsVisible());
+	Enemy->Tick(2.01f);
+	State.Sequence++;
+	State.HP = 90;
+	Enemy->ApplyNetworkState(State);
+	TestFalse(TEXT("Healing does not extend hit visibility"), Component->IsVisible());
+	Enemy->ApplyNetworkState(State);
+	TestFalse(TEXT("Duplicate snapshot does not reveal bar"), Component->IsVisible());
+
+	USAHealthBarWidget* Widget = NewObject<USAHealthBarWidget>();
+	Widget->Initialize();
+	TSharedRef<SWidget> SlateWidget = Widget->TakeWidget();
+	UProgressBar* Bar = Cast<UProgressBar>(Widget->GetWidgetFromName(TEXT("HealthBar")));
+	if (!TestNotNull(TEXT("Overhead progress bar exists"), Bar)) return false;
+	Widget->UpdateHealth(100, 100, 0, true);
+	Widget->UpdateHealth(25, 100, 0.05f);
+	TestTrue(TEXT("Overhead damage interpolates"), Bar->GetPercent() > 0.25f && Bar->GetPercent() < 1.0f);
+	Widget->UpdateHealth(25, 100, 1.0f);
+	TestEqual(TEXT("Overhead damage reaches target"), Bar->GetPercent(), 0.25f);
+	Widget->UpdateHealth(75, 100, 0.05f);
+	TestTrue(TEXT("Overhead healing interpolates"), Bar->GetPercent() > 0.25f && Bar->GetPercent() < 0.75f);
+	Widget->UpdateHealth(75, 100, 1.0f);
+	TestEqual(TEXT("Overhead healing reaches target"), Bar->GetPercent(), 0.75f);
+	Widget->UpdateHealth(10, 0, 1.0f);
+	TestEqual(TEXT("Overhead zero maximum is safe"), Bar->GetPercent(), 0.0f);
 	return true;
 }
 

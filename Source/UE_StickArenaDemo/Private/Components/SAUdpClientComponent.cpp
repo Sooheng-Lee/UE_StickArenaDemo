@@ -207,6 +207,8 @@ USAUdpClientComponent::USAUdpClientComponent()
 void USAUdpClientComponent::BeginPlay()
 {
 	Super::BeginPlay();
+	if (const ACharacter* Character = Cast<ACharacter>(GetOwner()))
+		AddTickPrerequisiteComponent(Character->GetCharacterMovement());
 	// Possession can happen later; TickComponent will attach once locally controlled.
 	EnsureConnection();
 }
@@ -522,8 +524,9 @@ void USAUdpClientComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 		OnRemotePlayerRemoved.Broadcast(PlayerId);
 	}
 	Elapsed += DeltaTime;
-	if (Elapsed < FMath::Max(StateSendInterval, 0.02f)) return;
+	if (!IsRegistered() || (!bStateUpdateRequested && Elapsed < FMath::Max(StateSendInterval, 0.02f))) return;
 	Elapsed = 0.0f;
+	bStateUpdateRequested = false;
 	// Idle heartbeats let late joiners receive all current players and expire disconnected peers.
 	SendAction(TEXT("STATE"), MovementInput);
 }

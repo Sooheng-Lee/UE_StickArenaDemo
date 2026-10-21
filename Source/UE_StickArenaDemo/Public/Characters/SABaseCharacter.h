@@ -30,6 +30,7 @@ public:
 	virtual void ApplyDamageKnockback(const FVector& VelocityChange);
 	void RestoreFromDamaged();
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void OnConstruction(const FTransform& Transform) override;
 	UFUNCTION(BlueprintCallable, Category="Character|Lifecycle")
 	void BeginSpawning();
 	UFUNCTION(BlueprintCallable, Category="Character|Lifecycle")
@@ -54,6 +55,8 @@ public:
 	UNiagaraSystem* GetHitEffect() const { return HitEffect.Get(); };
 protected:
 	virtual void BeginPlay() override;
+	void ConfigureCharacterCapsule();
+	virtual void OnDamageReceived() {}
 	void Attack();
 
 protected:

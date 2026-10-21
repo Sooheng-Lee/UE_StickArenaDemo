@@ -225,6 +225,7 @@ void USAPlayerWidget::NativeConstruct()
 
 void USAPlayerWidget::SetStatusComponent(USAStatusComponent* InStatusComponent)
 {
+	if (StatusComponent != InStatusComponent) bHealthInitialized = false;
 	StatusComponent = InStatusComponent;
 	RefreshStatus();
 }
@@ -255,7 +256,13 @@ void USAPlayerWidget::RefreshStatus()
 	const float MaxHP = Status ? FMath::Max(0.0f, Status->MaxHP) : 0.0f;
 	SetTextIfChanged(HealthText, FText::Format(NSLOCTEXT("SAHUD", "Health", "{0} / {1}"),
 		FText::AsNumber(HP, &NumberFormat), FText::AsNumber(MaxHP, &NumberFormat)));
-	if (HealthBar) HealthBar->SetPercent(MaxHP > 0.0f ? FMath::Clamp(HP / MaxHP, 0.0f, 1.0f) : 0.0f);
+	TargetHealthPercent = MaxHP > 0.0f ? FMath::Clamp(HP / MaxHP, 0.0f, 1.0f) : 0.0f;
+	if (!bHealthInitialized || !Status || MaxHP <= 0.0f)
+	{
+		DisplayedHealthPercent = TargetHealthPercent;
+		bHealthInitialized = true;
+	}
+	if (HealthBar) HealthBar->SetPercent(DisplayedHealthPercent);
 	SetTextIfChanged(AmmoText, FText::Format(NSLOCTEXT("SAHUD", "Ammo", "{0} / {1}"),
 		FText::AsNumber(Status ? FMath::Max(0, Status->Ammo) : 0),
 		FText::AsNumber(Status ? FMath::Max(0, Status->MaxAmmo) : 0)));
@@ -266,8 +273,18 @@ void USAPlayerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	// Status fields are also edited directly by weapons, networking and Blueprints.
 	RefreshStatus();
+	UpdateHealthBar(InDeltaTime);
 	MinimapScanRemaining -= InDeltaTime;
 	RefreshMinimap();
+}
+
+void USAPlayerWidget::UpdateHealthBar(float DeltaSeconds)
+{
+	const float Alpha = 1.0f - FMath::Exp(-10.0f * FMath::Max(DeltaSeconds, 0.0f));
+	DisplayedHealthPercent = FMath::Lerp(DisplayedHealthPercent, TargetHealthPercent, Alpha);
+	if (FMath::IsNearlyEqual(DisplayedHealthPercent, TargetHealthPercent, 0.0001f))
+		DisplayedHealthPercent = TargetHealthPercent;
+	if (HealthBar) HealthBar->SetPercent(DisplayedHealthPercent);
 }
 
 void USAPlayerWidget::SetMatchClient(USAUdpClientComponent* InMatchClient)

@@ -28,6 +28,7 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="HUD")
 	void RefreshStatus();
+	void UpdateHealthBar(float DeltaSeconds);
 
 	UFUNCTION(BlueprintCallable, Category="HUD|Minimap")
 	void RefreshMinimap();
@@ -84,6 +85,9 @@ protected:
 	TObjectPtr<UImage> MinimapPlayerArrow;
 
 private:
+	float TargetHealthPercent = 0.0f;
+	float DisplayedHealthPercent = 0.0f;
+	bool bHealthInitialized = false;
 	void BuildDefaultLayout();
 	void InitializeMinimapBounds();
 	UPROPERTY(Transient)
