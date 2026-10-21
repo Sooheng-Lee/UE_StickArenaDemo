@@ -1,7 +1,9 @@
 #include "Widget/SAPlayerWidget.h"
+#include "Widget/SAMinimapData.h"
 
 #include "Blueprint/WidgetTree.h"
 #include "Characters/SABaseCharacter.h"
+#include "Characters/SAEnemyCharacter.h"
 #include "Components/SAStatusComponent.h"
 #include "Components/SAUdpClientComponent.h"
 #include "Components/Border.h"
@@ -14,6 +16,11 @@
 #include "Components/SizeBox.h"
 #include "Components/TextBlock.h"
 #include "Engine/Texture2D.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "Materials/MaterialInterface.h"
 #include "Items/SAWeaponActor.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
 #include "Styling/CoreStyle.h"
@@ -23,6 +30,8 @@ namespace
 {
 	const FLinearColor Gold(0.72f, 0.49f, 0.19f);
 	const FLinearColor PanelColor(0.035f, 0.022f, 0.014f, 0.90f);
+	constexpr float PanelCornerRadius = 10.0f;
+	constexpr float PanelBorderThickness = 2.0f;
 
 	void SetTextIfChanged(UTextBlock* Widget, const FText& Text)
 	{
@@ -39,6 +48,10 @@ USAPlayerWidget::USAPlayerWidget(const FObjectInitializer& ObjectInitializer)
 	AttackIconTexture = Attack.Object;
 	DefenseIconTexture = Defense.Object;
 	AmmoIconTexture = Ammo.Object;
+	static ConstructorHelpers::FObjectFinder<UTexture2D> Arrow(TEXT("/Game/UI/Icons/T_UI_PlayerArrow.T_UI_PlayerArrow"));
+	PlayerArrowTexture = Arrow.Object;
+	static ConstructorHelpers::FObjectFinder<USAMinimapData> MapData(TEXT("/Game/UI/Minimap/DA_Minimap_Main.DA_Minimap_Main"));
+	MinimapData = MapData.Object;
 }
 
 TSharedRef<SWidget> USAPlayerWidget::RebuildWidget()
@@ -67,21 +80,15 @@ void USAPlayerWidget::BuildDefaultLayout()
 	{
 		UBorder* Frame = WidgetTree->ConstructWidget<UBorder>();
 		Frame->SetBrushColor(Gold);
-		if (Name == TEXT("HealthPanel"))
-		{
-			Frame->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, 12.0f));
-		}
-		Frame->SetPadding(FMargin(2.0f));
+		Frame->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, PanelCornerRadius));
+		Frame->SetPadding(FMargin(PanelBorderThickness));
 		UCanvasPanelSlot* Slot = Root->AddChildToCanvas(Frame);
 		Slot->SetAnchors(Anchors);
 		Slot->SetOffsets(Offsets);
 		Slot->SetAlignment(Alignment);
 		UBorder* Background = WidgetTree->ConstructWidget<UBorder>();
 		Background->SetBrushColor(PanelColor);
-		if (Name == TEXT("HealthPanel"))
-		{
-			Background->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, 10.0f));
-		}
+		Background->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, PanelCornerRadius - PanelBorderThickness));
 		Background->SetPadding(FMargin(10.0f, 6.0f));
 		Frame->SetContent(Background);
 		UCanvasPanel* Content = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), Name);
@@ -166,19 +173,37 @@ void USAPlayerWidget::BuildDefaultLayout()
 
 	if (bShowMinimap)
 	{
-		UCanvasPanel* Map = Panel(TEXT("MinimapPanel"), FAnchors(1, 0), FMargin(-28, 28, 224, 244), FVector2D(1, 0));
+		UCanvasPanel* Map = Panel(TEXT("MinimapPanel"), FAnchors(1, 0), FMargin(-28, 28, 280, 288), FVector2D(1, 0));
 		MinimapImage = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("MinimapImage"));
-		// Reserved image area only; map content can be supplied later.
+		// The background and marker canvas share a square coordinate space.
+		MinimapImage->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, PanelCornerRadius - PanelBorderThickness));
 		MinimapImage->SetColorAndOpacity(FLinearColor(0.015f, 0.012f, 0.01f, 0.75f));
 		UCanvasPanelSlot* MapSlot = Map->AddChildToCanvas(MinimapImage);
 		MapSlot->SetAnchors(FAnchors(0, 0, 1, 1));
-		MapSlot->SetOffsets(FMargin(0, 22, 0, 0));
-		UTextBlock* North = Text(TEXT("NorthLabel"), TEXT("N"), 18, Gold);
-		North->SetJustification(ETextJustify::Center);
-		UCanvasPanelSlot* NorthSlot = Map->AddChildToCanvas(North);
-		NorthSlot->SetAnchors(FAnchors(0.5f, 0));
-		NorthSlot->SetAlignment(FVector2D(0.5f, 0));
-		NorthSlot->SetSize(FVector2D(32, 24));
+		MapSlot->SetOffsets(FMargin(24, 32, 24, 32));
+		MinimapMarkers = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("MinimapMarkers"));
+		UCanvasPanelSlot* MarkersSlot = Map->AddChildToCanvas(MinimapMarkers);
+		MarkersSlot->SetAnchors(FAnchors(0, 0, 1, 1));
+		MarkersSlot->SetOffsets(FMargin(24, 32, 24, 32));
+		MinimapMarkers->SetClipping(EWidgetClipping::ClipToBounds);
+		MinimapPlayerArrow = Icon(TEXT("MinimapPlayerArrow"), PlayerArrowTexture);
+		MinimapPlayerArrow->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+		UCanvasPanelSlot* ArrowSlot = Place(MinimapMarkers, MinimapPlayerArrow, FVector2D::ZeroVector, FVector2D(26, 26));
+		ArrowSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		ArrowSlot->SetZOrder(10);
+		const auto Direction = [&Text, Map](FName Name, const TCHAR* Label, FVector2D Anchor)
+		{
+			UTextBlock* LabelWidget = Text(Name, Label, 18, Gold);
+			LabelWidget->SetJustification(ETextJustify::Center);
+			UCanvasPanelSlot* LabelSlot = Map->AddChildToCanvas(LabelWidget);
+			LabelSlot->SetAnchors(FAnchors(Anchor.X, Anchor.Y));
+			LabelSlot->SetAlignment(Anchor);
+			LabelSlot->SetSize(FVector2D(24, 24));
+		};
+		Direction(TEXT("NorthLabel"), TEXT("N"), FVector2D(0.5f, 0));
+		Direction(TEXT("WestLabel"), TEXT("W"), FVector2D(0, 0.5f));
+		Direction(TEXT("SouthLabel"), TEXT("S"), FVector2D(0.5f, 1));
+		Direction(TEXT("EastLabel"), TEXT("E"), FVector2D(1, 0.5f));
 	}
 }
 
@@ -194,6 +219,8 @@ void USAPlayerWidget::NativeConstruct()
 			SetStatusComponent(Player->GetStatusComponent());
 	}
 	RefreshStatus();
+	InitializeMinimapBounds();
+	RefreshMinimap();
 }
 
 void USAPlayerWidget::SetStatusComponent(USAStatusComponent* InStatusComponent)
@@ -239,10 +266,103 @@ void USAPlayerWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	Super::NativeTick(MyGeometry, InDeltaTime);
 	// Status fields are also edited directly by weapons, networking and Blueprints.
 	RefreshStatus();
+	MinimapScanRemaining -= InDeltaTime;
+	RefreshMinimap();
 }
 
 void USAPlayerWidget::SetMatchClient(USAUdpClientComponent* InMatchClient)
 {
 	MatchClient = InMatchClient;
 	RefreshStatus();
+}
+
+void USAPlayerWidget::InitializeMinimapBounds()
+{
+	if (!bShowMinimap || !GetWorld()) return;
+	FString MapPackage = GetWorld()->GetOutermost()->GetName();
+	MapPackage.ReplaceInline(*GetWorld()->StreamingLevelsPrefix, TEXT(""));
+	if (MinimapData && MinimapData->Texture && MinimapData->WorldSize > 0.0f
+		&& MinimapData->SourceMap.ToSoftObjectPath().GetLongPackageName() == MapPackage)
+	{
+		MinimapWorldCenter = MinimapData->WorldCenter;
+		MinimapWorldSize = MinimapData->WorldSize;
+		if (MinimapImage)
+		{
+			MinimapImage->SetBrushFromTexture(MinimapData->Texture);
+			MinimapImage->SetColorAndOpacity(FLinearColor::White);
+		}
+		return;
+	}
+	FBox Bounds(ForceInit);
+	for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+	{
+		TInlineComponentArray<UStaticMeshComponent*> Components(*It);
+		for (const UStaticMeshComponent* Component : Components)
+		{
+			if (!Component->GetStaticMesh()) continue;
+			const bool bTagged = Component->ComponentHasTag(TEXT("SAPlayerSpawnGround")) || It->ActorHasTag(TEXT("SAPlayerSpawnGround"));
+			if (!bTagged && Component->GetStaticMesh()->GetFName() != FName(TEXT("SM_Ground"))) continue;
+			bool bRock = false;
+			for (const UMaterialInterface* Material : Component->GetMaterials())
+				bRock |= Material && Material->GetFName() == FName(TEXT("MI_Arena_Rock"));
+			if (bTagged || !bRock) Bounds += Component->Bounds.GetBox();
+		}
+	}
+	if (Bounds.IsValid)
+	{
+		MinimapWorldCenter = FVector2D(Bounds.GetCenter());
+		MinimapWorldSize = FMath::Max(1.0f, static_cast<float>(FMath::Max(Bounds.GetSize().X, Bounds.GetSize().Y)) * 1.12f);
+	}
+}
+
+void USAPlayerWidget::RefreshMinimap()
+{
+	if (!bShowMinimap || !MinimapMarkers || !MinimapPlayerArrow || !GetWorld()) return;
+	const APawn* Player = GetOwningPlayerPawn();
+	MinimapMarkers->SetVisibility(IsValid(Player) ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
+	if (!IsValid(Player)) return;
+	// Discover network proxies periodically; movement remains smooth every frame.
+	if (MinimapScanRemaining <= 0.0f)
+	{
+		MinimapScanRemaining = 0.25f;
+		for (TActorIterator<ASAEnemyCharacter> It(GetWorld()); It; ++It)
+		{
+			if (EnemyMinimapMarkers.Contains(*It)) continue;
+			UImage* Dot = WidgetTree->ConstructWidget<UImage>();
+			Dot->SetBrush(FSlateRoundedBoxBrush(FLinearColor::White, 4.0f));
+			Dot->SetColorAndOpacity(FLinearColor(1.0f, 0.025f, 0.035f));
+			UCanvasPanelSlot* DotSlot = MinimapMarkers->AddChildToCanvas(Dot);
+			DotSlot->SetSize(FVector2D(8, 8));
+			DotSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			EnemyMinimapMarkers.Add(*It, Dot);
+		}
+	}
+	const auto PositionMarker = [this](UImage* Marker, const FVector& Location)
+	{
+		const float WorldSize = FMath::Max(1.0f, MinimapWorldSize);
+		const FVector2D UV(0.5 + (Location.Y - MinimapWorldCenter.Y) / WorldSize,
+			0.5 - (Location.X - MinimapWorldCenter.X) / WorldSize);
+		// Padding keeps the entire rotating arrow inside the map at its edges.
+		const FVector2D Clamped(FMath::Clamp(UV.X, 0.09, 0.91), FMath::Clamp(UV.Y, 0.09, 0.91));
+		if (UCanvasPanelSlot* Slot = Cast<UCanvasPanelSlot>(Marker->Slot))
+		{
+			Slot->SetAnchors(FAnchors(Clamped.X, Clamped.Y));
+			Slot->SetPosition(FVector2D::ZeroVector);
+		}
+	};
+	PositionMarker(MinimapPlayerArrow, Player->GetActorLocation());
+	MinimapPlayerArrow->SetRenderTransformAngle(Player->GetActorRotation().Yaw);
+	for (auto It = EnemyMinimapMarkers.CreateIterator(); It; ++It)
+	{
+		const ASAEnemyCharacter* Enemy = It.Key().Get();
+		if (!IsValid(Enemy))
+		{
+			It.Value()->RemoveFromParent();
+			It.RemoveCurrent();
+			continue;
+		}
+		const bool bVisible = Enemy->GetCharacterState() != ECharacterState::Dead && !Enemy->IsHidden();
+		It.Value()->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Hidden);
+		if (bVisible) PositionMarker(It.Value(), Enemy->GetActorLocation());
+	}
 }

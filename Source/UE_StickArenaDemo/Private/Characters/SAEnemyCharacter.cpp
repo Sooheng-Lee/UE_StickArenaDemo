@@ -6,6 +6,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SAStatusComponent.h"
 #include "Items/SAWeaponActor.h"
+#include "Materials/MaterialInterface.h"
+#include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSAEnemy, Log, All);
 
@@ -32,6 +34,11 @@ ASAEnemyCharacter::ASAEnemyCharacter()
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	GetMesh()->AddTickPrerequisiteActor(this);
+	// Overlay preserves the remote player's original materials and highlights the silhouette.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> EnemyOutline(
+		TEXT("/Game/PlayerCharacters/Materials/MI_EnemyRedOutline.MI_EnemyRedOutline"));
+	if (EnemyOutline.Succeeded())
+		GetMesh()->SetOverlayMaterial(EnemyOutline.Object);
 }
 
 void ASAEnemyCharacter::BeginPlay()

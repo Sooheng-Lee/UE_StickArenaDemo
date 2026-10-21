@@ -3,6 +3,9 @@
 #include "Misc/AutomationTest.h"
 #include "Blueprint/WidgetTree.h"
 #include "Characters/SABaseCharacter.h"
+#include "Characters/SAEnemyCharacter.h"
+#include "Components/CanvasPanel.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Characters/SAPlayerCharacter.h"
 #include "Components/SAStatusComponent.h"
 #include "Components/ProgressBar.h"
@@ -11,6 +14,8 @@
 #include "Components/TextBlock.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Engine/LocalPlayer.h"
+#include "GameFramework/WorldSettings.h"
 #include "GameFramework/PlayerController.h"
 #include "Items/SAWeaponActor.h"
 #include "UObject/UnrealType.h"
@@ -113,6 +118,55 @@ bool FSAPlayerWidgetTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSAMinimapTest, "StickArena.Status.Minimap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FSAMinimapTest::RunTest(const FString& Parameters)
+{
+	FSAStatusTestWorld TestWorld;
+	TestWorld.World->InitializeActorsForPlay(FURL());
+	TestWorld.World->BeginPlay();
+	TestWorld.World->GetWorldSettings()->NotifyBeginPlay();
+	APlayerController* Controller = TestWorld.World->SpawnActor<APlayerController>();
+	ULocalPlayer* LocalPlayer = NewObject<ULocalPlayer>(GEngine);
+	LocalPlayer->PlayerController = Controller;
+	Controller->Player = LocalPlayer;
+	ASABaseCharacter* Player = TestWorld.World->SpawnActor<ASABaseCharacter>();
+	Controller->Possess(Player);
+	ASAEnemyCharacter* Enemy = TestWorld.World->SpawnActor<ASAEnemyCharacter>();
+	Enemy->SetActorLocation(FVector(1200, 2400, 0));
+	USAPlayerWidget* Widget = NewObject<USAPlayerWidget>(TestWorld.World);
+	Widget->Initialize();
+	Widget->SetPlayerContext(FLocalPlayerContext(LocalPlayer, TestWorld.World));
+	TSharedRef<SWidget> SlateWidget = Widget->TakeWidget();
+	if (!TestEqual(TEXT("Minimap owner pawn"), Widget->GetOwningPlayerPawn(), static_cast<APawn*>(Player))) return false;
+	if (!TestEqual(TEXT("Minimap world"), Widget->GetWorld(), TestWorld.World)) return false;
+	Widget->RefreshMinimap();
+	UCanvasPanel* Markers = Cast<UCanvasPanel>(Widget->GetWidgetFromName(TEXT("MinimapMarkers")));
+	UImage* Arrow = Cast<UImage>(Widget->GetWidgetFromName(TEXT("MinimapPlayerArrow")));
+	if (!TestNotNull(TEXT("Minimap marker canvas"), Markers) || !TestNotNull(TEXT("Player arrow"), Arrow)) return false;
+	TestNotNull(TEXT("Generated arrow texture is assigned"), Arrow->GetBrush().GetResourceObject());
+	if (!TestEqual(TEXT("One player and one enemy marker"), Markers->GetChildrenCount(), 2)) return false;
+	UWidget* Dot = Markers->GetChildAt(1);
+	UCanvasPanelSlot* DotSlot = CastChecked<UCanvasPanelSlot>(Dot->Slot);
+	TestTrue(TEXT("World +Y projects east and +X projects north"), DotSlot->GetAnchors().Minimum.Equals(FVector2D(0.7, 0.4), 0.001));
+	Player->SetActorLocation(FVector(-1200, -2400, 0));
+	Player->SetActorRotation(FRotator(0, 90, 0));
+	Widget->RefreshMinimap();
+	TestTrue(TEXT("Player marker follows world position"), CastChecked<UCanvasPanelSlot>(Arrow->Slot)->GetAnchors().Minimum.Equals(FVector2D(0.3, 0.6), 0.001));
+	TestEqual(TEXT("Arrow follows facing direction"), Arrow->GetRenderTransform().Angle, 90.0f);
+	Enemy->SetActorLocation(FVector(100000, -100000, 0));
+	Widget->RefreshMinimap();
+	TestTrue(TEXT("Off-map markers stay inside the border"), DotSlot->GetAnchors().Minimum.Equals(FVector2D(0.09, 0.09), 0.001));
+	Enemy->SetCharacterState(ECharacterState::Dead);
+	Widget->RefreshMinimap();
+	TestEqual(TEXT("Dead enemies are hidden"), Dot->GetVisibility(), ESlateVisibility::Hidden);
+	Enemy->Destroy();
+	Widget->RefreshMinimap();
+	TestEqual(TEXT("Disconnected enemy marker removed"), Markers->GetChildrenCount(), 1);
+	return true;
+}
+
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FSAHUDLiveCheck, FAutomationTestBase*, Test, TWeakObjectPtr<USAPlayerWidget>, Widget);
 
 bool FSAHUDLiveCheck::Update()
@@ -123,15 +177,18 @@ bool FSAHUDLiveCheck::Update()
 		Test->TestEqual(TEXT("Native tick observes direct status changes"), Health->GetText().ToString(), FString(TEXT("85 / 100")));
 	Test->TestNull(TEXT("Minimap layout does not create a scene capture"), Widget->GetOwningPlayerPawn()->FindComponentByClass<USceneCaptureComponent2D>());
 	UImage* Map = Cast<UImage>(Widget->GetWidgetFromName(TEXT("MinimapImage")));
-	if (Test->TestNotNull(TEXT("Reserved minimap image area exists"), Map))
-		Test->TestNull(TEXT("Minimap layout has no map resource"), Map->GetBrush().GetResourceObject());
-	for (const FName Name : {FName(TEXT("AttackIcon")), FName(TEXT("DefenseIcon")), FName(TEXT("AmmoIcon"))})
+	if (Test->TestNotNull(TEXT("Minimap background exists"), Map))
+		Test->TestNotNull(TEXT("Baked level texture is assigned"), Map->GetBrush().GetResourceObject());
+	UCanvasPanel* Markers = Cast<UCanvasPanel>(Widget->GetWidgetFromName(TEXT("MinimapMarkers")));
+	if (Test->TestNotNull(TEXT("Live minimap markers"), Markers))
+		Test->TestTrue(TEXT("Both test enemies appear on the minimap"), Markers->GetChildrenCount() >= 3);
+	for (const FName Name : {FName(TEXT("AttackIcon")), FName(TEXT("DefenseIcon")), FName(TEXT("AmmoIcon")), FName(TEXT("MinimapPlayerArrow"))})
 	{
 		UImage* Icon = Cast<UImage>(Widget->GetWidgetFromName(Name));
 		if (Test->TestNotNull(TEXT("HUD icon is an image"), Icon))
 			Test->TestNotNull(TEXT("Generated HUD icon texture assigned"), Icon->GetBrush().GetResourceObject());
 	}
-	FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir() / TEXT("Automation/SAPlayerHUD_v2.png"), true, false);
+	FScreenshotRequest::RequestScreenshot(FPaths::ProjectSavedDir() / TEXT("Automation/SAPlayerHUD_Minimap.png"), true, false);
 	return true;
 }
 
@@ -153,6 +210,12 @@ bool FSAPlayerHUDLiveTest::RunTest(const FString& Parameters)
 	Player->GetStatusComponent()->HP = 85;
 	Player->GetStatusComponent()->Ammo = 36;
 	Player->GetStatusComponent()->MaxAmmo = 120;
+	for (const FVector Offset : {FVector(900, 600, 0), FVector(-900, -1200, 0)})
+	{
+		FActorSpawnParameters SpawnParameters;
+		SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Player->GetWorld()->SpawnActor<ASAEnemyCharacter>(Player->GetActorLocation() + Offset, FRotator::ZeroRotator, SpawnParameters);
+	}
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FSAHUDLiveCheck(this, Widget));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));

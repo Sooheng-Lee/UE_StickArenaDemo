@@ -10,6 +10,9 @@ class UTextBlock;
 class UProgressBar;
 class UImage;
 class UTexture2D;
+class UCanvasPanel;
+class ASAEnemyCharacter;
+class USAMinimapData;
 
 /** Native HUD; a Widget Blueprint may replace the layout using the optional named widgets. */
 UCLASS()
@@ -25,6 +28,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="HUD")
 	void RefreshStatus();
+
+	UFUNCTION(BlueprintCallable, Category="HUD|Minimap")
+	void RefreshMinimap();
 
 	UFUNCTION(BlueprintCallable, Category="HUD")
 	void SetMatchClient(USAUdpClientComponent* InMatchClient);
@@ -63,7 +69,24 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD|Minimap")
 	bool bShowMinimap = true;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD|Minimap")
+	TObjectPtr<USAMinimapData> MinimapData;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD|Minimap")
+	TObjectPtr<UTexture2D> PlayerArrowTexture;
+	// +X is north (up), +Y is east (right). Ground bounds override these defaults.
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD|Minimap")
+	FVector2D MinimapWorldCenter = FVector2D::ZeroVector;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="HUD|Minimap", meta=(ClampMin="1.0"))
+	float MinimapWorldSize = 12000.0f;
+	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional), Category="HUD|Minimap")
+	TObjectPtr<UCanvasPanel> MinimapMarkers;
+	UPROPERTY(BlueprintReadOnly, meta=(BindWidgetOptional), Category="HUD|Minimap")
+	TObjectPtr<UImage> MinimapPlayerArrow;
 
 private:
 	void BuildDefaultLayout();
+	void InitializeMinimapBounds();
+	UPROPERTY(Transient)
+	TMap<TWeakObjectPtr<ASAEnemyCharacter>, TObjectPtr<UImage>> EnemyMinimapMarkers;
+	float MinimapScanRemaining = 0.0f;
 };
